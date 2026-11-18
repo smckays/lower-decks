@@ -42,7 +42,7 @@ const EMPTY: Ship = {
       isBusy: false,
     })),
   ],
-  log: [{ who: 'Ship', text: 'Shift started. Coffee is a rumour.', kind: 'idle' }],
+  log: [{ who: 'Ship', text: 'Shift started. Attendance is technically complete.', kind: 'idle' }],
   alert: 'allstop',
   jobs: 0,
   breaches: 0,
@@ -211,7 +211,7 @@ export const register: Register = on => {
       const id = e.agentId ?? MAIN
       await update($, ship, (s): Ship => {
         const { next: moved, mate } = post(s, id, id === MAIN ? 'mess' : 'cryo', true)
-        const text = id === MAIN ? pick(ORDERS, s.jobs + s.log.length) : `Dragged out of the mess and assigned. Known issue: ${mate.flaw}.`
+        const text = id === MAIN ? pick(ORDERS, s.jobs + s.log.length) : `Assigned. Known issue: ${mate.flaw}.`
 
         return { ...moved, alert: 'underway', breachAt: undefined, log: logged(moved, mate.name, text, id === MAIN ? 'bridge' : 'hire') }
       })
@@ -307,7 +307,7 @@ export const register: Register = on => {
         }
       })
       if (id === MAIN) {
-        $.ui.toast(`${SHIP}: all stop. Your move, Captain.`)
+        $.ui.toast(`${SHIP}: all stop. Awaiting the bridge.`)
       }
     } catch {
       // As above.
@@ -422,10 +422,10 @@ function plain(state: Ship, room: number, Text: TextTag) {
 
 function banner(state: Ship): string {
   return state.alert === 'breach'
-    ? 'HULL BREACH. AGAIN.'
+    ? 'HULL BREACH. NOTED.'
     : state.alert === 'allstop'
       ? 'ALL STOP. Awaiting the bridge.'
-      : 'Underway. Allegedly.'
+      : 'Underway. For now.'
 }
 
 function tone(state: Ship): 'error' | 'warning' | 'success' {

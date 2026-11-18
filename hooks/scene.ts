@@ -146,7 +146,7 @@ export function scene(ship: Ship, name: string): string {
   const isMoving = ship.alert !== 'allstop'
   const lamp = ship.alert === 'breach' ? '#ff4d4d' : ship.alert === 'allstop' ? '#f2b632' : '#2bd9a0'
   const banner =
-    ship.alert === 'breach' ? 'HULL BREACH. AGAIN.' : ship.alert === 'allstop' ? 'ALL STOP. AWAITING THE BRIDGE.' : 'UNDERWAY. ALLEGEDLY.'
+    ship.alert === 'breach' ? 'HULL BREACH. NOTED.' : ship.alert === 'allstop' ? 'ALL STOP. AWAITING THE BRIDGE.' : 'UNDERWAY. FOR NOW.'
   const last = ship.log[ship.log.length - 1]
 
   const stars = [
