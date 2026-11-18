@@ -172,3 +172,29 @@ You are given a real status update from the engineer running the job. Rewrite it
 export function clipLine(value: string, max: number): string {
   return clip(value, max)
 }
+
+export type Quip = { text: string; at?: Station }
+
+// Nothing to do: {a} speaks, {b} suffers. `at` is where {a} wanders off to.
+export const BANTER: Quip[] = [
+  { text: '{b}, you are sitting in my spot. They are all my spot.' },
+  { text: 'Whoever keeps labelling their lunch "{b}": it does not work, {b}.' },
+  { text: 'I am not saying {b} broke the coffee machine. The coffee machine is saying it.' },
+  { text: '{b} has been "about to help" since the last refit.' },
+  { text: 'Going to check the hold. Do not follow me, {b}.', at: 'hold' },
+  { text: 'Dealing cards. {b} owes me eleven shifts already.' },
+  { text: '{b}, breathe quieter. Some of us are doing nothing over here.' },
+  { text: 'Formal complaint: {b} is humming. Second formal complaint: it is off-key.' },
+  { text: 'Standing near the reactor for warmth. Tell {b} I died doing what I tolerated.', at: 'reactor' },
+  { text: 'I counted the rivets again. Still one fewer than yesterday. Looking at you, {b}.' },
+  { text: '{b} asked what the Captain looks like. Nobody knows. That is the benefits package.' },
+  { text: 'Taking a nap in a cryo pod. If I am not back, {b} did it.', at: 'cryo' },
+  { text: 'Hey {b}. {b}. {b}. Nothing, just checking you still flinch.' },
+  { text: 'Pretending to recalibrate the sensors so {b} stops talking to me.', at: 'sensors' },
+  { text: 'I would like it noted that {b} called this "quality downtime."' },
+  { text: 'Tightening a bolt that is already tight. Supervise me, {b}.', at: 'workshop' },
+  { text: '{b} thinks there will be a bonus. Let them have this.' },
+  { text: 'Back in the mess. The hold was also boring, {b}, and it smelled like you.', at: 'mess' },
+  { text: 'If the bridge asks, {b} and I were conducting a safety stand-down.' },
+  { text: 'Listening to the engines tick. Better company than {b}.', at: 'engine' },
+]

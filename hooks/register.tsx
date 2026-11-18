@@ -4,6 +4,7 @@ import type { Elements, Register } from 'claude-code'
 import type { Entry, EntryKind, Mate, Ship, Station } from '../types'
 import { describe, roomLabel, scene } from './scene'
 import {
+  BANTER,
   BREACH,
   CHIEF,
   IDLE,
@@ -23,7 +24,17 @@ const MAIN = 'main'
 const MODEL = 'claude-haiku-5-5'
 
 const EMPTY: Ship = {
-  crew: [{ id: MAIN, ...CHIEF, hue: 200, station: 'mess', isBusy: false }],
+  crew: [
+    { id: MAIN, ...CHIEF, hue: 200, station: 'mess', isBusy: false },
+    // The standing crew: on the payroll, in the mess, until a subagent needs a body.
+    ...ROSTER.slice(0, 4).map((hand, i): Mate => ({
+      id: `bunk:${i}`,
+      ...hand,
+      hue: (i * 67 + 20) % 360,
+      station: 'mess',
+      isBusy: false,
+    })),
+  ],
   log: [{ who: 'Ship', text: 'Shift started. Coffee is a rumour.', kind: 'idle' }],
   alert: 'allstop',
   jobs: 0,
@@ -32,13 +43,20 @@ const EMPTY: Ship = {
 }
 
 const ship = atom({ plugin: 'lower-decks', key: 'ship' } as const, EMPTY, {
-  shape: 'ship-1',
+  shape: 'ship-2',
 })
 
 function mateOf(state: Ship, id: string): { crew: Mate[]; mate: Mate; isNew: boolean } {
   const found = state.crew.find(m => m.id === id)
   if (found !== undefined) {
     return { crew: state.crew, mate: found, isNew: false }
+  }
+  // Whoever is loafing gets the job before anyone new is thawed.
+  const loafer = state.crew.find(m => m.id !== MAIN && !m.isBusy)
+  if (loafer !== undefined) {
+    const mate = { ...loafer, id }
+
+    return { crew: state.crew.map(m => (m === loafer ? mate : m)), mate, isNew: true }
   }
   const taken = new Set(state.crew.map(m => m.name))
   const free = ROSTER.find(r => !taken.has(r.name)) ?? {
@@ -48,20 +66,12 @@ function mateOf(state: Ship, id: string): { crew: Mate[]; mate: Mate; isNew: boo
   const mate: Mate = {
     id,
     ...free,
-    hue: (state.hires * 67 + 20) % 360,
+    hue: (state.crew.length * 67 + 20) % 360,
     station: 'cryo',
     isBusy: true,
   }
-  // Nine fit on the ship: the longest-idle hand goes back in a pod.
-  const kept = state.crew.length >= 9 ? dropIdle(state.crew) : state.crew
 
-  return { crew: [...kept, mate], mate, isNew: true }
-}
-
-function dropIdle(crew: Mate[]): Mate[] {
-  const gone = crew.find(m => m.id !== MAIN && !m.isBusy) ?? crew.find(m => m.id !== MAIN)
-
-  return crew.filter(m => m !== gone)
+  return { crew: [...state.crew, mate], mate, isNew: true }
 }
 
 function logged(state: Ship, who: string, text: string, kind: EntryKind): Entry[] {
@@ -84,6 +94,9 @@ export const register: Register = on => {
   let isTranslating = false
   let misses = 0
   let lines = 0
+  // Quarter-minutes with nothing to do, and how many insults that has produced.
+  let idle = 0
+  let quips = 0
 
   on('session.start', async ($, e, next) => {
     await $.command.register({
@@ -102,6 +115,45 @@ export const register: Register = on => {
         isTranslating = false
       })
     })
+
+    $.clock.every(15000, () => {
+      void loaf().catch(() => undefined)
+    })
+
+    async function loaf(): Promise<void> {
+      const now = await read($, ship)
+      if (now.alert !== 'allstop' || now.crew.some(m => m.isBusy)) {
+        idle = 0
+
+        return
+      }
+      idle += 1
+      // First jab after half a minute, then every 45 seconds, then rarely.
+      if (idle < 2 || idle % 3 !== 2 || (idle > 40 && idle % 12 !== 2)) {
+        return
+      }
+      quips += 1
+      const roll = Math.floor(Math.random() * 1000)
+      await update($, ship, (s): Ship => {
+        if (s.alert !== 'allstop' || s.crew.length < 2) {
+          return s
+        }
+        const a = s.crew[(roll + quips) % s.crew.length]
+        const others = s.crew.filter(m => m !== a)
+        const b = others[(roll >> 3) % others.length]
+        const quip = BANTER[(roll + quips * 7) % BANTER.length]
+        if (a === undefined || b === undefined || quip === undefined) {
+          return s
+        }
+        const text = quip.text.replace(/\{b\}/g, b.name)
+
+        return {
+          ...s,
+          crew: s.crew.map(m => (m === a ? { ...m, station: quip.at ?? m.station } : m)),
+          log: logged(s, a.name, text, 'idle'),
+        }
+      })
+    }
 
     async function translate(job: { id: string; text: string }): Promise<void> {
       let line: string | undefined
@@ -152,7 +204,7 @@ export const register: Register = on => {
       const id = e.agentId ?? MAIN
       await update($, ship, (s): Ship => {
         const { next: moved, mate } = post(s, id, id === MAIN ? 'mess' : 'cryo', true)
-        const text = id === MAIN ? pick(ORDERS, s.jobs + s.log.length) : `Thawed and assigned. ${mate.flaw}.`
+        const text = id === MAIN ? pick(ORDERS, s.jobs + s.log.length) : `Dragged out of the mess and assigned. Known issue: ${mate.flaw}.`
 
         return { ...moved, alert: 'underway', breachAt: undefined, log: logged(moved, mate.name, text, id === MAIN ? 'bridge' : 'hire') }
       })
@@ -166,6 +218,7 @@ export const register: Register = on => {
   on('tool.call', async ($, e, next) => {
     const id = e.agentId ?? MAIN
     const job = jobOf(String(e.tool), e as unknown as Record<string, unknown>)
+    idle = 0
     lines += 1
     const n = lines
     try {
@@ -239,7 +292,7 @@ export const register: Register = on => {
 
         return {
           ...s,
-          crew: s.crew.map(m => (m.id === MAIN ? { ...m, station: 'mess' as const, isBusy: false } : m)),
+          crew: s.crew.map(m => (m.id === MAIN || !m.isBusy ? { ...m, station: 'mess' as const, isBusy: false } : m)),
           alert: 'allstop',
           breachAt: undefined,
           log: logged(s, 'Ship', text, 'idle'),
