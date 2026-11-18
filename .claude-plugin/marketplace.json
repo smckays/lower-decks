@@ -1,0 +1,5 @@
+{
+  "name": "lower-decks",
+  "owner": { "name": "smckays" },
+  "plugins": [{ "name": "lower-decks", "source": "./" }]
+}
