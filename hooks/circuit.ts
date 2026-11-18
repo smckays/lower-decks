@@ -4,7 +4,8 @@ import { VOICES, alias } from './voice'
 type Node = { x: number; y: number; label: string }
 
 const WIDTH = 1024
-const HEIGHT = 640
+const HEIGHT = 772
+const MONO = "'JetBrains Mono','SF Mono','Cascadia Code',Menlo,Consolas,ui-monospace,monospace"
 const HUB: Station = 'mess'
 const LANES = 6
 const GAP = 7
@@ -17,7 +18,7 @@ const NODES: Record<Station, Node> = {
   engine: { x: 84, y: 330, label: 'EXEC' },
   comms: { x: 940, y: 330, label: 'NET' },
   workshop: { x: 196, y: 520, label: 'WRITE' },
-  reactor: { x: 512, y: 548, label: 'VERIFY' },
+  reactor: { x: 512, y: 526, label: 'VERIFY' },
   cryo: { x: 842, y: 516, label: 'SPAWN' },
 }
 
@@ -78,24 +79,6 @@ function bit(path: string, dur: number, phase: number, now: number, fill: string
   return `<rect x="${-h}" y="${-h}" width="${size}" height="${size}" fill="${fill}"><animateMotion dur="${dur.toFixed(1)}s" begin="${begin.toFixed(2)}s" repeatCount="indefinite" path="${path}"/></rect>`
 }
 
-function wrap(text: string, width: number, max: number): string[] {
-  const lines: string[] = []
-  let line = ''
-  for (const word of text.split(' ')) {
-    if (line !== '' && (line + ' ' + word).length > width) {
-      lines.push(line)
-      line = word
-    } else {
-      line = line === '' ? word : line + ' ' + word
-    }
-  }
-  if (line !== '') {
-    lines.push(line)
-  }
-
-  return lines.length > max ? [...lines.slice(0, max - 1), (lines[max - 1] ?? '').slice(0, width - 1) + '…'] : lines
-}
-
 /** The board as one SVG document; `now` is seconds, so motion carries over a redraw. */
 export function circuitScene(ship: Ship, now: number): string {
   const voice = VOICES.circuit
@@ -141,7 +124,7 @@ export function circuitScene(ship: Ship, now: number): string {
   }
   let digits = ''
   for (let i = 0; i < 130; i += 1) {
-    digits += `<text x="${Math.round(rand() * WIDTH)}" y="${Math.round(64 + rand() * 500)}" font-size="7" fill="${rand() < 0.12 ? '#8a4a2c' : '#2c5f90'}" font-family="monospace">${rand() < 0.5 ? 0 : 1}</text>`
+    digits += `<text x="${Math.round(rand() * WIDTH)}" y="${Math.round(64 + rand() * 500)}" font-size="7" fill="${rand() < 0.12 ? '#8a4a2c' : '#2c5f90'}" font-family="${MONO}">${rand() < 0.5 ? 0 : 1}</text>`
   }
 
   let buses = ''
@@ -185,18 +168,27 @@ export function circuitScene(ship: Ship, now: number): string {
     nodes += `${glow}<rect x="${n.x - s}" y="${n.y - s}" width="${s * 2}" height="${s * 2}" rx="3" fill="${NAVY}" stroke="${bright}" stroke-width="1.4"/>${pads}`
     const tags = busy.map(m => alias('circuit', m.name)).join(' ')
     const ly = n.y > 420 ? n.y + s + 15 : n.y - s - 8
-    nodes += `<text x="${n.x}" y="${id === HUB ? n.y + s + 15 : ly}" font-size="9.5" text-anchor="middle" fill="${isFault ? FAULT : isLive ? '#d6f6ff' : '#4f7fae'}" font-family="monospace" letter-spacing="2">${n.label}${tags === '' ? '' : '  ' + tags}</text>`
+    nodes += `<text x="${n.x}" y="${id === HUB ? n.y + s + 15 : ly}" font-size="9.5" text-anchor="middle" fill="${isFault ? FAULT : isLive ? '#d6f6ff' : '#4f7fae'}" font-family="${MONO}" letter-spacing="2">${n.label}${tags === '' ? '' : '  ' + tags}</text>`
   }
 
-  const last = ship.log[ship.log.length - 1]
-  const who = last === undefined ? '' : alias('circuit', last.who)
-  const body = last === undefined ? '' : alias('circuit', last.text)
-  const note = last === undefined ? [] : wrap(body.startsWith(who) ? body : `${who}  ${body}`, 118, 2)
-  const notes = note
-    .map((l, i) => `<text x="52" y="${608 + i * 15}" font-size="11.5" fill="#8fb0d4" font-family="monospace">${esc(l)}</text>`)
-    .join('')
+  // The log: newest at the bottom, older lines fading out above it.
+  const shown = ship.log.slice(-8)
+  const rows = shown
+    .map((entry, i) => {
+      const [op = '', ...rest] = entry.text.split('\t')
+      const subject = alias('circuit', rest.join(' '))
+      const age = shown.length - 1 - i
+      const y = 762 - age * 19
+      const tint = entry.kind === 'breach' ? FAULT : op === 'NOTE' ? '#c98a5e' : op === 'IDLE' || op === 'EXIT' ? '#5f86b3' : CYAN
+      const seq = (entry.n ?? 0).toString(16).padStart(4, '0')
+      const who = alias('circuit', entry.who).padEnd(4, ' ')
 
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${WIDTH} ${HEIGHT}" width="${WIDTH}" height="${HEIGHT}"><rect width="${WIDTH}" height="${HEIGHT}" fill="${NAVY}"/>${board}${digits}${drift}${buses}${traffic}${nodes}<text x="28" y="34" font-size="11" fill="#4f7fae" font-family="monospace" letter-spacing="3">${esc(voice.title.toUpperCase())}</text><path d="M28 574H${WIDTH - 28}" stroke="#16305a" stroke-width="1"/><rect x="30" y="582" width="9" height="9" fill="${lamp}">${ship.alert === 'underway' ? '' : '<animate attributeName="opacity" values="1;0.3;1" dur="1.4s" repeatCount="indefinite"/>'}</rect><text x="52" y="591" font-size="12.5" fill="${lamp}" font-family="monospace" letter-spacing="2.5">${voice.banners[ship.alert]}</text><text x="${WIDTH - 28}" y="591" font-size="10.5" text-anchor="end" fill="#4f7fae" font-family="monospace" letter-spacing="1">OPS ${ship.jobs}  FAULTS ${ship.breaches}  THREADS ${ship.hires}</text>${notes}</svg>`
+      return `<g opacity="${Math.max(0.22, 1 - age * 0.115).toFixed(2)}"><text x="30" y="${y}" fill="#2f5f92">${seq}</text><text x="84" y="${y}" fill="#4f8fc6">${esc(who)}</text><text x="138" y="${y}" fill="${tint}">${esc(op)}</text><text x="212" y="${y}" fill="#b9d3ee">${esc(subject.length > 96 ? subject.slice(0, 95) + '…' : subject)}</text></g>`
+    })
+    .join('')
+  const log = `<g font-family="${MONO}" font-size="12.5" letter-spacing="0.3" xml:space="preserve">${rows}</g>`
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${WIDTH} ${HEIGHT}" width="${WIDTH}" height="${HEIGHT}"><rect width="${WIDTH}" height="${HEIGHT}" fill="${NAVY}"/>${board}${digits}${drift}${buses}${traffic}${nodes}<text x="28" y="34" font-size="11" fill="#4f7fae" font-family="${MONO}" letter-spacing="3">${esc(voice.title.toUpperCase())}</text><path d="M28 574H${WIDTH - 28}" stroke="#16305a" stroke-width="1"/><rect x="30" y="582" width="9" height="9" fill="${lamp}">${ship.alert === 'underway' ? '' : '<animate attributeName="opacity" values="1;0.3;1" dur="1.4s" repeatCount="indefinite"/>'}</rect><text x="52" y="591" font-size="12.5" fill="${lamp}" font-family="${MONO}" letter-spacing="2.5">${voice.banners[ship.alert]}</text><text x="${WIDTH - 28}" y="591" font-size="10.5" text-anchor="end" fill="#4f7fae" font-family="${MONO}" letter-spacing="1">OPS ${ship.jobs}  FAULTS ${ship.breaches}  THREADS ${ship.hires}</text>${log}</svg>`
 }
 
 export function circuitLabel(station: Station): string {

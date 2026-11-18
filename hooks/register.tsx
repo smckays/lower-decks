@@ -78,7 +78,9 @@ function mateOf(state: Ship, id: string): { crew: Mate[]; mate: Mate; isNew: boo
 }
 
 function logged(state: Ship, who: string, text: string, kind: EntryKind): Entry[] {
-  return [...state.log, { who, text, kind }].slice(-40)
+  const n = (state.log[state.log.length - 1]?.n ?? 0) + 1
+
+  return [...state.log, { who, text, kind, n }].slice(-40)
 }
 
 function post(state: Ship, id: string, station: Station, isBusy: boolean): { next: Ship; mate: Mate } {
@@ -169,7 +171,7 @@ export const register: Register = on => {
     async function translate(job: { id: string; text: string }): Promise<void> {
       let line: string | undefined
       const voice = voiceOf(await read($, ship))
-      if (misses < 3) {
+      if (voice.system !== '' && misses < 3) {
         try {
           const answer = await $.model.complete({
             model: MODEL,
@@ -278,7 +280,7 @@ export const register: Register = on => {
             alert: 'breach',
             breachAt: job.station,
             breaches: s.breaches + 1,
-            log: logged(s, mate?.name ?? CHIEF.name, `${labelOf(s, job.station)}: ${pick(voiceOf(s).breach, s.breaches)}`, 'breach'),
+            log: logged(s, mate?.name ?? CHIEF.name, voiceOf(s).isPlain ? `FAULT\t${labelOf(s, job.station).toLowerCase()}` : `${labelOf(s, job.station)}: ${pick(voiceOf(s).breach, s.breaches)}`, 'breach'),
           }
         })
       } catch {
@@ -358,7 +360,7 @@ export const register: Register = on => {
             {state.crew.map(m => `${m.name} (${m.flaw})`).join(' · ')}
           </Text>
         )}
-        <Box flexDirection="column">{logRows(state, room, Text)}</Box>
+        {!voiceOf(state).isPlain && <Box flexDirection="column">{logRows(state, room, Text)}</Box>}
       </Box>
     )
   })
@@ -448,7 +450,7 @@ function banner(state: Ship): string {
 }
 
 function said(state: Ship, text: string): string {
-  return alias(state.setting ?? 'freighter', text)
+  return alias(state.setting ?? 'freighter', text).replace(/\t/g, '  ')
 }
 
 function picture(state: Ship, now: number): { source: string; alt: string } {
