@@ -210,6 +210,8 @@ The tone is dry: a naturalist's notebook kept by someone who has watched this co
 You are given a real status update from the engineer running the job. Rewrite it as ONE field note, 140 characters at most, in that voice. Keep the concrete fact (what was found, done or about to be done) recognisable. No quotation marks, no emoji, no preamble. Output only the note.`
 
 export type Voice = {
+  /** A plain log: fixed OP<tab>subject entries, no rewriting, no idle chatter. */
+  isPlain?: true
   title: string
   start: string
   system: string
@@ -287,19 +289,50 @@ export const VOICES: Record<Setting, Voice> = {
     ],
     banners: { underway: 'ACTIVE.', allstop: 'DORMANT. AWAITING STIMULUS.', breach: 'COLLAPSE. NOTED.' },
   },
+  circuit: {
+    isPlain: true,
+    title: 'Substrate',
+    start: 'INIT\tonline',
+    system: '',
+    memo: 'NOTE\t',
+    assigned: 'START\tthread',
+    toast: 'Substrate: idle.',
+    work: {
+      read: ['READ\t{x}'],
+      search: ['SCAN\t{x}'],
+      edit: ['WRITE\t{x}'],
+      write: ['CREATE\t{x}'],
+      run: ['EXEC\t{x}'],
+      test: ['VERIFY\t{x}'],
+      comms: ['NET\t{x}'],
+      hire: ['SPAWN\t{x}'],
+      bridge: ['WAIT\tinput'],
+      manual: ['REF\t{x}'],
+      other: ['CALL\t{x}'],
+    },
+    breach: ['FAULT'],
+    orders: ['INPUT\treceived'],
+    idle: ['IDLE\tawaiting input'],
+    wreck: ['HALT\tinterrupted'],
+    off: ['EXIT\tthread done'],
+    banter: [],
+    banners: { underway: 'ACTIVE', allstop: 'IDLE', breach: 'FAULT' },
+  },
 }
 
 // Bytes have designations, not names.
 const HEX: Record<string, string> = {
   'Chief Hask': '0x00', Gary: '0x1F', Mott: '0x2A', Pim: '0x3C', Dregs: '0x4D',
-  Vex: '0x5E', Oona: '0x6B', Skiv: '0x77', Lump: '0x7F', Ship: 'Colony',
+  Vex: '0x5E', Oona: '0x6B', Skiv: '0x77', Lump: '0x7F',
 }
 
 /** A crew name as the setting knows it. */
 export function alias(setting: Setting, text: string): string {
-  if (setting !== 'colony') {
+  if (setting === 'freighter') {
     return text
   }
 
-  return text.replace(/Chief Hask|Gary|Mott|Pim|Dregs|Vex|Oona|Skiv|Lump|Ship/g, name => HEX[name] ?? name)
+  return text.replace(/Chief Hask|Gary|Mott|Pim|Dregs|Vex|Oona|Skiv|Lump|Ship/g, name =>
+    name === 'Ship' ? (setting === 'colony' ? 'Colony' : 'sys') : (HEX[name] ?? name),
+  )
 }

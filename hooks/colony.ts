@@ -179,7 +179,9 @@ export function colonyScene(ship: Ship, now: number): string {
   }
 
   const last = ship.log[ship.log.length - 1]
-  const note = last === undefined ? [] : wrap(alias('colony', `${last.who}: ${last.text}`), 118, 2)
+  const who = last === undefined ? '' : alias('colony', last.who)
+  const body = last === undefined ? '' : alias('colony', last.text)
+  const note = last === undefined ? [] : wrap(body.includes(who) ? body : `${who}: ${body}`, 118, 2)
   const notes = note
     .map((l, i) => `<text x="64" y="${606 + i * 16}" font-size="12" fill="#aab1b7" font-family="monospace">${esc(l)}</text>`)
     .join('')

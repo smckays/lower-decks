@@ -6,9 +6,10 @@ Status updates are rewritten in the crew's voice by a small model call each; too
 
 ## Settings
 
-Two settings, switched with a command and remembered across sessions:
+Three settings, switched with a command and remembered across sessions:
 
 - `/lower-decks freighter`: the crew of the MV Sunk Cost.
+- `/lower-decks circuit`: an abstract circuit board, with bits moving along traces between nodes and a plain log in a code font.
 - `/lower-decks colony`: a colony of small faceless units in tunnels and chambers, with field notes in place of a ship's log.
 
 ## Install
