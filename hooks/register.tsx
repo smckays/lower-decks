@@ -10,16 +10,20 @@ import { CHIEF, ROSTER, VOICES, alias, clipLine, jobOf, pick } from './voice'
 const PANE = 'lower-decks'
 const MAIN = 'main'
 const MODEL = 'claude-haiku-5-5'
+// The setting a new install opens in, until the person picks another.
+const DEFAULT: Setting = 'circuit'
 
 // Where each hand loafs by default, so the mess is not standing room only.
 const HOME: Record<string, Station> = { Mott: 'hold', Dregs: 'comms', Vex: 'cryo', Skiv: 'hold', Lump: 'cryo' }
 
 function voiceOf(state: Ship) {
-  return VOICES[state.setting ?? 'freighter']
+  return VOICES[state.setting ?? DEFAULT]
 }
 
 function labelOf(state: Ship, station: Station): string {
-  return state.setting === 'colony' ? colonyLabel(station) : state.setting === 'circuit' ? circuitLabel(station) : roomLabel(station)
+  const setting = state.setting ?? DEFAULT
+
+  return setting === 'colony' ? colonyLabel(station) : setting === 'circuit' ? circuitLabel(station) : roomLabel(station)
 }
 
 function homeOf(name: string): Station {
@@ -38,7 +42,8 @@ const EMPTY: Ship = {
       isBusy: false,
     })),
   ],
-  log: [{ who: 'Ship', text: VOICES.freighter.start, kind: 'idle' }],
+  setting: DEFAULT,
+  log: [{ who: 'Ship', text: VOICES[DEFAULT].start, kind: 'idle' }],
   alert: 'allstop',
   jobs: 0,
   breaches: 0,
@@ -46,7 +51,7 @@ const EMPTY: Ship = {
 }
 
 const ship = atom({ plugin: 'lower-decks', key: 'ship' } as const, EMPTY, {
-  shape: 'ship-3',
+  shape: 'ship-4',
 })
 
 function mateOf(state: Ship, id: string): { crew: Mate[]; mate: Mate; isNew: boolean } {
@@ -111,7 +116,7 @@ export const register: Register = on => {
     })
     // The setting is the person's choice and outlives the session.
     const kept = await $.store.get('setting').catch(() => undefined)
-    const setting: Setting = kept === 'colony' || kept === 'circuit' ? kept : 'freighter'
+    const setting: Setting = kept === 'colony' || kept === 'circuit' || kept === 'freighter' ? kept : DEFAULT
     const current = await update($, ship, (s): Ship =>
       s.setting === setting ? s : { ...s, setting, log: [{ who: 'Ship', text: VOICES[setting].start, kind: 'idle' }] },
     )
@@ -355,7 +360,7 @@ export const register: Register = on => {
     return (
       <Box flexDirection="column" gap={1}>
         <Svg {...picture(state, (await $.clock.now()) / 1000)} />
-        {!isGlance && (state.setting ?? 'freighter') === 'freighter' && (
+        {!isGlance && (state.setting ?? DEFAULT) === 'freighter' && (
           <Text dimColor size="caption">
             {state.crew.map(m => `${m.name} (${m.flaw})`).join(' · ')}
           </Text>
@@ -434,7 +439,7 @@ function plain(state: Ship, room: number, Text: TextTag) {
     ...state.crew.map(m => (
       <Text dimColor={!m.isBusy}>
         {m.isBusy ? '>' : 'z'} {said(state, m.name)}
-        {(state.setting ?? 'freighter') === 'freighter' ? ` (${m.flaw})` : ''}: {labelOf(state, m.station).toLowerCase()}
+        {(state.setting ?? DEFAULT) === 'freighter' ? ` (${m.flaw})` : ''}: {labelOf(state, m.station).toLowerCase()}
       </Text>
     )),
     <Text dimColor>
@@ -450,17 +455,18 @@ function banner(state: Ship): string {
 }
 
 function said(state: Ship, text: string): string {
-  return alias(state.setting ?? 'freighter', text).replace(/\t/g, '  ')
+  return alias(state.setting ?? DEFAULT, text).replace(/\t/g, '  ')
 }
 
 function picture(state: Ship, now: number): { source: string; alt: string } {
-  if (state.setting === 'circuit') {
-    return { source: circuitScene(state, now), alt: circuitDescribe(state) }
+  const setting = state.setting ?? DEFAULT
+  if (setting === 'freighter') {
+    return { source: scene(state, VOICES.freighter.title), alt: describe(state) }
   }
 
-  return state.setting === 'colony'
+  return setting === 'colony'
     ? { source: colonyScene(state, now), alt: colonyDescribe(state) }
-    : { source: scene(state, VOICES.freighter.title), alt: describe(state) }
+    : { source: circuitScene(state, now), alt: circuitDescribe(state) }
 }
 
 function tone(state: Ship): 'error' | 'warning' | 'success' {

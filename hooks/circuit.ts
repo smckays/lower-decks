@@ -4,7 +4,7 @@ import { VOICES, alias } from './voice'
 type Node = { x: number; y: number; label: string }
 
 const WIDTH = 1024
-const HEIGHT = 772
+const HEIGHT = 762
 const MONO = "'JetBrains Mono','SF Mono','Cascadia Code',Menlo,Consolas,ui-monospace,monospace"
 const HUB: Station = 'mess'
 const LANES = 6
@@ -45,42 +45,82 @@ function rng(seed: number): () => number {
 
 type Trace = { d: string; back: string; length: number }
 
-// One lane of the bus from the core to a node: straight, a 45-degree run, straight.
+// One lane of the bus from the core to a node. Every bus turns four times: a long diagonal is
+// taken in two halves, and a bus that would run dead straight is given a jog out and back.
 function lane(to: Node, i: number): Trace {
   const hub = NODES[HUB]
   const off = (i - (LANES - 1) / 2) * GAP
   const dx = to.x - hub.x
   const dy = to.y - hub.y
   const isWide = Math.abs(dx) >= Math.abs(dy)
-  const sx = isWide ? 0 : off
-  const sy = isWide ? off : 0
-  const diag = Math.min(Math.abs(dx), Math.abs(dy))
-  const rest = Math.abs(Math.abs(dx) - Math.abs(dy))
-  const lead = Math.round(rest * 0.45)
-  const ux = Math.sign(dx)
-  const uy = Math.sign(dy)
-  const p0: [number, number] = [hub.x + sx, hub.y + sy]
-  const p1: [number, number] = isWide ? [p0[0] + ux * lead, p0[1]] : [p0[0], p0[1] + uy * lead]
-  const p2: [number, number] = [p1[0] + ux * diag, p1[1] + uy * diag]
-  const p3: [number, number] = [to.x + sx, to.y + sy]
-  const pts = [p0, p1, p2, p3].map(p => `${Math.round(p[0])} ${Math.round(p[1])}`)
-
-  return {
-    d: `M${pts.join('L')}`,
-    back: `M${[...pts].reverse().join('L')}`,
-    length: rest + diag * 1.414,
+  const main = isWide ? Math.abs(dx) : Math.abs(dy)
+  const cross = isWide ? Math.abs(dy) : Math.abs(dx)
+  const um = Math.sign(isWide ? dx : dy)
+  const uc = Math.sign(isWide ? dy : dx) || (to.x + to.y > 600 ? 1 : -1)
+  // Each step: how far along the bus's own axis, and how far across it.
+  const jog = 34
+  const steps: [number, number][] =
+    cross >= 40
+      ? [
+          [(main - cross) * 0.2, 0],
+          [cross * 0.5, cross * 0.5],
+          [(main - cross) * 0.42, 0],
+          [cross * 0.5, cross * 0.5],
+          [(main - cross) * 0.38, 0],
+        ]
+      : [
+          [(main - 2 * jog + cross) * 0.28, 0],
+          [jog, jog],
+          [(main - 2 * jog + cross) * 0.36, 0],
+          [jog - cross, -(jog - cross)],
+          [(main - 2 * jog + cross) * 0.36, 0],
+        ]
+  let x = hub.x + (isWide ? 0 : off)
+  let y = hub.y + (isWide ? off : 0)
+  const pts = [`${Math.round(x)} ${Math.round(y)}`]
+  let length = 0
+  for (const [along, across] of steps) {
+    x += isWide ? um * along : uc * across
+    y += isWide ? uc * across : um * along
+    length += Math.hypot(along, across)
+    pts.push(`${Math.round(x)} ${Math.round(y)}`)
   }
+
+  return { d: `M${pts.join('L')}`, back: `M${[...pts].reverse().join('L')}`, length }
 }
 
-function bit(path: string, dur: number, phase: number, now: number, fill: string, size: number): string {
+// A bit is a square; a packet is a dash that turns with the trace.
+function bit(path: string, dur: number, phase: number, now: number, fill: string, size: number, isPacket = false): string {
   const begin = -(((now + phase * dur) % dur) + dur) % dur
   const h = size / 2
+  const shape = isPacket ? `x="-5" y="-1.2" width="10" height="2.4" rx="1.2"` : `x="${-h}" y="${-h}" width="${size}" height="${size}"`
 
-  return `<rect x="${-h}" y="${-h}" width="${size}" height="${size}" fill="${fill}"><animateMotion dur="${dur.toFixed(1)}s" begin="${begin.toFixed(2)}s" repeatCount="indefinite" path="${path}"/></rect>`
+  return `<rect ${shape} fill="${fill}"><animateMotion dur="${dur.toFixed(2)}s" begin="${begin.toFixed(2)}s" repeatCount="indefinite"${isPacket ? ' rotate="auto"' : ''} path="${path}"/></rect>`
+}
+
+// A run of light sliding along a trace.
+function flow(path: string, stroke: string, length: number, speed: number, phase: number, now: number): string {
+  const gap = Math.max(120, Math.round(length * 0.6))
+  const dur = (gap + 26) / speed
+  const begin = -(((now + phase * dur) % dur) + dur) % dur
+
+  return `<path d="${path}" fill="none" stroke="${stroke}" stroke-width="2.2" stroke-linecap="round" stroke-dasharray="26 ${gap}"><animate attributeName="stroke-dashoffset" values="${gap + 26};0" dur="${dur.toFixed(2)}s" begin="${begin.toFixed(2)}s" repeatCount="indefinite"/></path>`
 }
 
 /** The board as one SVG document; `now` is seconds, so motion carries over a redraw. */
 export function circuitScene(ship: Ship, now: number): string {
+  // The engine draws at most 131,072 characters: when every bus is live, thin the traffic.
+  for (const density of [1, 0.7, 0.45]) {
+    const drawn = draw(ship, now, density)
+    if (drawn.length <= 122000) {
+      return drawn
+    }
+  }
+
+  return draw(ship, now, 0.25)
+}
+
+function draw(ship: Ship, now: number, density: number): string {
   const voice = VOICES.circuit
   const rand = rng(11)
   const hub = NODES[HUB]
@@ -95,15 +135,17 @@ export function circuitScene(ship: Ship, now: number): string {
   // The board nobody asked about: dim traces on the three allowed angles, and stray digits.
   let board = ''
   let drift = ''
-  for (let i = 0; i < 46; i += 1) {
+  for (let i = 0; i < 64; i += 1) {
     let x = Math.round(rand() * WIDTH)
     let y = Math.round(60 + rand() * 500)
     const pts = [`${x} ${y}`]
-    const turns = 2 + Math.floor(rand() * 2)
+    const turns = 3 + Math.floor(rand() * 3)
     let total = 0
+    let dir = Math.floor(rand() * 8)
     for (let t = 0; t < turns; t += 1) {
-      const dir = Math.floor(rand() * 8)
-      const len = 50 + Math.round(rand() * 190)
+      // Each turn is 45 degrees one way or the other, so no run doubles back on itself.
+      dir = (dir + (rand() < 0.5 ? 1 : 7)) % 8
+      const len = 36 + Math.round(rand() * 150)
       const dx = [1, 1, 0, -1, -1, -1, 0, 1][dir] ?? 0
       const dy = [0, 1, 1, 1, 0, -1, -1, -1][dir] ?? 0
       // A run that would leave the board is dropped, never bent: bending breaks the angle.
@@ -113,18 +155,25 @@ export function circuitScene(ship: Ship, now: number): string {
       x += dx * len
       y += dy * len
       pts.push(`${x} ${y}`)
-      total += len
+      total += len * (dx !== 0 && dy !== 0 ? 1.414 : 1)
+    }
+    if (pts.length < 2) {
+      continue
     }
     const d = `M${pts.join('L')}`
-    const tone = rand() < 0.14 ? '#5a3524' : rand() < 0.5 ? DIM : '#18345a'
+    const isWarm = rand() < 0.14
+    const tone = isWarm ? '#5a3524' : rand() < 0.5 ? DIM : '#18345a'
     board += `<path d="${d}" fill="none" stroke="${tone}" stroke-width="1"/><circle cx="${x}" cy="${y}" r="2.2" fill="none" stroke="${tone}" stroke-width="1"/>`
-    if (i % 2 === 0 && pts.length > 1) {
-      drift += bit(d, (total / 14) * (isIdle ? 1.6 : 1), rand(), now, i % 10 === 0 ? '#a85a34' : '#3d78b0', 2.4)
+    const speed = (isIdle ? 55 : 95) * (0.7 + rand() * 0.8)
+    drift += bit(d, total / speed, rand(), now, isWarm ? '#c06a3c' : '#4a8cc8', 2.6, i % 3 === 0)
+    if (i % 2 === 0 && density >= 0.7) {
+      drift += flow(d, isWarm ? '#8a4a2c' : '#2f6aa8', total, speed * 1.5, rand(), now)
     }
   }
   let digits = ''
-  for (let i = 0; i < 130; i += 1) {
-    digits += `<text x="${Math.round(rand() * WIDTH)}" y="${Math.round(64 + rand() * 500)}" font-size="7" fill="${rand() < 0.12 ? '#8a4a2c' : '#2c5f90'}" font-family="${MONO}">${rand() < 0.5 ? 0 : 1}</text>`
+  for (let i = 0; i < Math.round(120 * density); i += 1) {
+    const blink = i % 4 === 0 ? `<animate attributeName="opacity" values="1;0.15;1" dur="${(0.8 + rand() * 2.4).toFixed(1)}s" begin="${(-rand() * 3).toFixed(1)}s" repeatCount="indefinite"/>` : ''
+    digits += `<text x="${Math.round(rand() * WIDTH)}" y="${Math.round(64 + rand() * 500)}" font-size="7" fill="${rand() < 0.12 ? '#8a4a2c' : '#2c5f90'}" font-family="${MONO}">${rand() < 0.5 ? 0 : 1}${blink}</text>`
   }
 
   let buses = ''
@@ -146,11 +195,14 @@ export function circuitScene(ship: Ship, now: number): string {
           buses += `<path d="${t.d}" fill="none" stroke="${stroke}" stroke-width="5" opacity="0.13"/>`
         }
         buses += `<path d="${t.d}" fill="none" stroke="${stroke}" stroke-width="1.3"/>`
-        const count = isLive ? 4 + Math.min(4, busy.length * 2) : isIdle ? 1 : 0
-        const pace = isFault ? 0.4 : isLive ? 1 : 3.4
+        const count = Math.max(1, Math.round((isFault ? 7 : isLive ? 5 + Math.min(3, busy.length) : 2) * density))
+        const speed = isFault ? 420 : isLive ? 230 : isIdle ? 70 : 110
         for (let b = 0; b < count; b += 1) {
           const fill = isFault ? '#ffd0c4' : isLive ? (i === 1 ? '#ffd2b0' : '#d6f6ff') : '#4f8fc6'
-          traffic += bit(i % 2 === 0 ? t.d : t.back, (t.length / 60) * pace * (0.85 + rand() * 0.3), rand(), now, fill, isLive ? 3.4 : 2.6)
+          traffic += bit(i % 2 === 0 ? t.d : t.back, t.length / (speed * (0.8 + rand() * 0.4)), rand(), now, fill, isLive ? 3.4 : 2.6, b % 3 === 2)
+        }
+        if (isLive || isFault ? density >= 0.45 || i % 2 === 0 : i % 3 === 0 && density >= 0.7) {
+          traffic += flow(i % 2 === 0 ? t.d : t.back, isFault ? '#ff9c86' : isLive ? '#9fe8fb' : '#3b76b4', t.length, speed * 1.3, rand(), now)
         }
       }
     }
@@ -162,23 +214,25 @@ export function circuitScene(ship: Ship, now: number): string {
     let pads = ''
     for (let px = -1; px <= 1; px += 1) {
       for (let py = -1; py <= 1; py += 1) {
-        pads += `<rect x="${n.x + px * (s / 2.2) - 1.5}" y="${n.y + py * (s / 2.2) - 1.5}" width="3" height="3" fill="${bright}" opacity="${isLive || isFault ? 1 : 0.6}"/>`
+        const blink = isLive || isFault ? `<animate attributeName="opacity" values="1;0.2;1" dur="${(0.3 + rand() * 0.7).toFixed(2)}s" begin="${(-rand()).toFixed(2)}s" repeatCount="indefinite"/>` : ''
+        pads += `<rect x="${n.x + px * (s / 2.2) - 1.5}" y="${n.y + py * (s / 2.2) - 1.5}" width="3" height="3" fill="${bright}" opacity="${isLive || isFault ? 1 : 0.6}">${blink}</rect>`
       }
     }
-    nodes += `${glow}<rect x="${n.x - s}" y="${n.y - s}" width="${s * 2}" height="${s * 2}" rx="3" fill="${NAVY}" stroke="${bright}" stroke-width="1.4"/>${pads}`
+    const ring = id === HUB ? `<rect x="${n.x - s - 7}" y="${n.y - s - 7}" width="${s * 2 + 14}" height="${s * 2 + 14}" rx="5" fill="none" stroke="${isIdle ? '#2a5c8f' : CYAN}" stroke-width="1.2" stroke-dasharray="10 14"><animate attributeName="stroke-dashoffset" values="24;0" dur="${isIdle ? 1.6 : 0.5}s" repeatCount="indefinite"/></rect>` : ''
+    nodes += `${glow}${ring}<rect x="${n.x - s}" y="${n.y - s}" width="${s * 2}" height="${s * 2}" rx="3" fill="${NAVY}" stroke="${bright}" stroke-width="1.4"/>${pads}`
     const tags = busy.map(m => alias('circuit', m.name)).join(' ')
     const ly = n.y > 420 ? n.y + s + 15 : n.y - s - 8
     nodes += `<text x="${n.x}" y="${id === HUB ? n.y + s + 15 : ly}" font-size="9.5" text-anchor="middle" fill="${isFault ? FAULT : isLive ? '#d6f6ff' : '#4f7fae'}" font-family="${MONO}" letter-spacing="2">${n.label}${tags === '' ? '' : '  ' + tags}</text>`
   }
 
-  // The log: newest at the bottom, older lines fading out above it.
+  // The log: newest at the top, right under the board, older lines fading out below it.
   const shown = ship.log.slice(-8)
   const rows = shown
     .map((entry, i) => {
       const [op = '', ...rest] = entry.text.split('\t')
       const subject = alias('circuit', rest.join(' '))
       const age = shown.length - 1 - i
-      const y = 762 - age * 19
+      const y = 614 + age * 19
       const tint = entry.kind === 'breach' ? FAULT : op === 'NOTE' ? '#c98a5e' : op === 'IDLE' || op === 'EXIT' ? '#5f86b3' : CYAN
       const seq = (entry.n ?? 0).toString(16).padStart(4, '0')
       const who = alias('circuit', entry.who).padEnd(4, ' ')

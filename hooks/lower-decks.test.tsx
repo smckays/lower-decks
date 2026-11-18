@@ -16,10 +16,15 @@ const PANE = {
 
 test('a tool call puts the chief to work, and a failure is a breach', async ($, on) => {
   on('clock.now', () => ({ value: 0 }))
+  on('command.register', () => ({ value: { command: 'lower-decks' } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('command.run', () => ({}))
+  on('store.set', () => ({ value: undefined }))
   on('tool.call', (_, e) =>
     String(e.tool) === 'Bash' ? { result: {}, text: 'boom', isError: true } : { result: {} },
   )
 
+  await $.command.run({ command: 'lower-decks', args: 'freighter' } as never)
   await $.tool.call({ tool: 'Read', file_path: '/a/b/manifest.txt' })
 
   for (const surface of ['terminal', 'desktop', 'mobile'] as const) {
@@ -38,8 +43,13 @@ test('a tool call puts the chief to work, and a failure is a breach', async ($, 
 
 test('a subagent is hired by name and the picture is drawn', async ($, on) => {
   on('clock.now', () => ({ value: 0 }))
+  on('command.register', () => ({ value: { command: 'lower-decks' } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('command.run', () => ({}))
+  on('store.set', () => ({ value: undefined }))
   on('tool.call', () => ({ result: {} }))
 
+  await $.command.run({ command: 'lower-decks', args: 'freighter' } as never)
   await $.tool.call({ tool: 'Grep', pattern: 'TODO', agentId: 'a1' })
 
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
@@ -50,9 +60,15 @@ test('a subagent is hired by name and the picture is drawn', async ($, on) => {
 })
 
 test('with no pane on screen the log rides above the prompt', async ($, on) => {
+  on('command.register', () => ({ value: { command: 'lower-decks' } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('command.run', () => ({}))
+  on('store.set', () => ({ value: undefined }))
+  on('clock.now', () => ({ value: 0 }))
   on('tool.call', () => ({ result: {} }))
   on('ui.panes', () => ({ value: [] }))
 
+  await $.command.run({ command: 'lower-decks', args: 'freighter' } as never)
   await $.tool.call({ tool: 'Read', file_path: '/a/b/manifest.txt' })
 
   const ui = await $.ui.mount({
@@ -80,5 +96,16 @@ test('the colony setting draws the swarm and renames the crew', async ($, on) =>
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
   expect((await ui.find({ type: 'Text', text: /0x00:/ })) !== undefined).toBe(true)
   expect((await ui.find({ type: 'Text', text: /Hask/ })) === undefined).toBe(true)
+  await ui.unmount()
+})
+
+test('a new install opens in the circuit setting with a plain log', async ($, on) => {
+  on('tool.call', () => ({ result: {} }))
+  on('clock.now', () => ({ value: 0 }))
+
+  await $.tool.call({ tool: 'Read', file_path: '/a/b/manifest.txt' })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect((await ui.find({ type: 'Text', text: /READ {2}manifest\.txt/ })) !== undefined).toBe(true)
   await ui.unmount()
 })
