@@ -4,6 +4,13 @@ A side panel for Claude Code that shows the agents at work as the underpaid lowe
 
 Status updates are rewritten in the crew's voice by a small model call each; tool calls use canned lines.
 
+## Settings
+
+Two settings, switched with a command and remembered across sessions:
+
+- `/lower-decks freighter`: the crew of the MV Sunk Cost.
+- `/lower-decks colony`: a colony of small faceless units in tunnels and chambers, with field notes in place of a ship's log.
+
 ## Install
 
 At the prompt of a terminal session:
