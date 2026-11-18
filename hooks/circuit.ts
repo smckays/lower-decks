@@ -4,7 +4,7 @@ import { VOICES, alias } from './voice'
 type Node = { x: number; y: number; label: string }
 
 const WIDTH = 1024
-const HEIGHT = 772
+const HEIGHT = 762
 const MONO = "'JetBrains Mono','SF Mono','Cascadia Code',Menlo,Consolas,ui-monospace,monospace"
 const HUB: Station = 'mess'
 const LANES = 6
@@ -171,14 +171,14 @@ export function circuitScene(ship: Ship, now: number): string {
     nodes += `<text x="${n.x}" y="${id === HUB ? n.y + s + 15 : ly}" font-size="9.5" text-anchor="middle" fill="${isFault ? FAULT : isLive ? '#d6f6ff' : '#4f7fae'}" font-family="${MONO}" letter-spacing="2">${n.label}${tags === '' ? '' : '  ' + tags}</text>`
   }
 
-  // The log: newest at the bottom, older lines fading out above it.
+  // The log: newest at the top, right under the board, older lines fading out below it.
   const shown = ship.log.slice(-8)
   const rows = shown
     .map((entry, i) => {
       const [op = '', ...rest] = entry.text.split('\t')
       const subject = alias('circuit', rest.join(' '))
       const age = shown.length - 1 - i
-      const y = 762 - age * 19
+      const y = 614 + age * 19
       const tint = entry.kind === 'breach' ? FAULT : op === 'NOTE' ? '#c98a5e' : op === 'IDLE' || op === 'EXIT' ? '#5f86b3' : CYAN
       const seq = (entry.n ?? 0).toString(16).padStart(4, '0')
       const who = alias('circuit', entry.who).padEnd(4, ' ')
