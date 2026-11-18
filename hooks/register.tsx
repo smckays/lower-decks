@@ -1,5 +1,5 @@
 import { atom, read, update } from 'claude-code'
-import type { Register } from 'claude-code'
+import type { Elements, Register } from 'claude-code'
 
 import type { Entry, EntryKind, Mate, Ship, Station } from '../types'
 import { describe, roomLabel, scene } from './scene'
@@ -137,9 +137,14 @@ export const register: Register = on => {
   })
 
   on('command.run', { command: 'lower-decks' }, async $ => {
-    await $.ui.open({ id: PANE, title: SHIP })
+    const opened = await $.ui.open({ id: PANE, title: SHIP })
 
-    return { text: `${SHIP} crew panel opened.` }
+    return {
+      text: opened.isPlaced
+        ? `${SHIP} crew panel opened.`
+        : `No side panel in this app (${opened.reason}), so the ${SHIP} is drawn here and the log runs above the prompt.`,
+      isTextDisplayOnly: true,
+    }
   })
 
   on('turn.start', async ($, e, next) => {
@@ -251,45 +256,15 @@ export const register: Register = on => {
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    const state = await read($, ship)
     const { Box, Text } = $.ui.resolve(e)
-    const isGlance = e.props.placement === 'widget'
+    const state = await read($, ship)
     const rows = e.viewport?.rows ?? 30
+    const isGlance = e.props.placement === 'widget'
     const room = isGlance ? 2 : Math.max(4, Math.min(14, rows - 22))
-    const recent = state.log.slice(-room).reverse()
-    const banner =
-      state.alert === 'breach'
-        ? 'HULL BREACH. AGAIN.'
-        : state.alert === 'allstop'
-          ? 'ALL STOP. Awaiting the bridge.'
-          : 'Underway. Allegedly.'
-
-    const logRows = recent.map((entry, i) => (
-      <Text dimColor={i > 0 && entry.kind !== 'breach'} color={entry.kind === 'breach' ? 'error' : undefined}>
-        <Text bold>{entry.who}:</Text> {entry.text}
-      </Text>
-    ))
 
     if (e.surface === 'terminal') {
-      return (
-        <Box flexDirection="column">
-          <Text bold color={state.alert === 'breach' ? 'error' : state.alert === 'allstop' ? 'warning' : 'success'}>
-            {banner}
-          </Text>
-          {state.crew.map(m => (
-            <Text dimColor={!m.isBusy}>
-              {m.isBusy ? '>' : 'z'} {m.name} ({m.flaw}): {roomLabel(m.station).toLowerCase()}
-            </Text>
-          ))}
-          <Text dimColor>
-            jobs {state.jobs} / breaches {state.breaches} / hires {state.hires}
-          </Text>
-          <Text> </Text>
-          {logRows}
-        </Box>
-      )
+      return <Box flexDirection="column">{plain(state, room, Text)}</Box>
     }
-
     const { Svg } = $.ui.resolve(e)
 
     return (
@@ -300,8 +275,98 @@ export const register: Register = on => {
             {state.crew.map(m => `${m.name} (${m.flaw})`).join(' · ')}
           </Text>
         )}
-        <Box flexDirection="column">{logRows}</Box>
+        <Box flexDirection="column">{logRows(state, room, Text)}</Box>
       </Box>
     )
   })
+
+  // Where no surface seats the pane, /lower-decks draws the ship in the transcript.
+  on('ui.render', { component: 'CommandOutput', props: { command: 'lower-decks' } }, async ($, e) => {
+    const { Box, Text } = $.ui.resolve(e)
+    const state = await read($, ship)
+    const note = <Text dimColor>{e.props.text}</Text>
+
+    if (e.surface === 'terminal') {
+      return (
+        <Box flexDirection="column">
+          {note}
+          {plain(state, 6, Text)}
+        </Box>
+      )
+    }
+    const { Svg } = $.ui.resolve(e)
+
+    return (
+      <Box flexDirection="column" gap={1}>
+        {note}
+        <Svg source={scene(state, SHIP)} alt={describe(state)} />
+        <Box flexDirection="column">{logRows(state, 6, Text)}</Box>
+      </Box>
+    )
+  })
+
+  // And the newest log line rides above the prompt while the pane is not on screen.
+  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    const panes = await $.ui.panes()
+    if (e.props.hasSurvey || panes.some(p => p.id === PANE && p.isPlaced && p.isShown)) {
+      return next(e)
+    }
+    const { Box, Text } = $.ui.resolve(e)
+    const state = await read($, ship)
+    const last = state.log[state.log.length - 1]
+
+    return (
+      <Box>
+        <Text color={tone(state)} bold>
+          {SHIP}{' '}
+        </Text>
+        <Text dimColor wrap="truncate-end">
+          {last === undefined ? banner(state) : `${last.who}: ${last.text}`}
+        </Text>
+      </Box>
+    )
+  })
+}
+
+type TextTag = Elements['terminal']['Text']
+
+function logRows(state: Ship, room: number, Text: TextTag) {
+  return state.log
+    .slice(-room)
+    .reverse()
+    .map((entry, i) => (
+      <Text dimColor={i > 0 && entry.kind !== 'breach'} color={entry.kind === 'breach' ? 'error' : undefined}>
+        <Text bold>{entry.who}:</Text> {entry.text}
+      </Text>
+    ))
+}
+
+function plain(state: Ship, room: number, Text: TextTag) {
+  return [
+    <Text bold color={tone(state)}>
+      {banner(state)}
+    </Text>,
+    ...state.crew.map(m => (
+      <Text dimColor={!m.isBusy}>
+        {m.isBusy ? '>' : 'z'} {m.name} ({m.flaw}): {roomLabel(m.station).toLowerCase()}
+      </Text>
+    )),
+    <Text dimColor>
+      jobs {state.jobs} / breaches {state.breaches} / hires {state.hires}
+    </Text>,
+    <Text> </Text>,
+    ...logRows(state, room, Text),
+  ]
+}
+
+function banner(state: Ship): string {
+  return state.alert === 'breach'
+    ? 'HULL BREACH. AGAIN.'
+    : state.alert === 'allstop'
+      ? 'ALL STOP. Awaiting the bridge.'
+      : 'Underway. Allegedly.'
+}
+
+function tone(state: Ship): 'error' | 'warning' | 'success' {
+  return state.alert === 'breach' ? 'error' : state.alert === 'allstop' ? 'warning' : 'success'
 }

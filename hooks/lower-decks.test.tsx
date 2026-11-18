@@ -46,3 +46,20 @@ test('a subagent is hired by name and the picture is drawn', async ($, on) => {
   expect((await ui.find({ type: 'Text', text: /Gary:/ })) !== undefined).toBe(true)
   await ui.unmount()
 })
+
+test('with no pane on screen the log rides above the prompt', async ($, on) => {
+  on('tool.call', () => ({ result: {} }))
+  on('ui.panes', () => ({ value: [] }))
+
+  await $.tool.call({ tool: 'Read', file_path: '/a/b/manifest.txt' })
+
+  const ui = await $.ui.mount({
+    plugin: 'lower-decks',
+    surface: 'desktop',
+    component: 'AbovePrompt',
+    requestId: 'band',
+    props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 3, bodyColumns: 80, scroll: { offset: 0, bodyRows: 3 }, view: {} },
+  })
+  expect((await ui.find({ type: 'Text', text: /manifest\.txt/ })) !== undefined).toBe(true)
+  await ui.unmount()
+})
