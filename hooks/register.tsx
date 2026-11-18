@@ -1,9 +1,10 @@
 import { atom, read, update } from 'claude-code'
-import type { Register } from 'claude-code'
+import type { Elements, Register } from 'claude-code'
 
 import type { Entry, EntryKind, Mate, Ship, Station } from '../types'
 import { describe, roomLabel, scene } from './scene'
 import {
+  BANTER,
   BREACH,
   CHIEF,
   IDLE,
@@ -23,7 +24,17 @@ const MAIN = 'main'
 const MODEL = 'claude-haiku-5-5'
 
 const EMPTY: Ship = {
-  crew: [{ id: MAIN, ...CHIEF, hue: 200, station: 'mess', isBusy: false }],
+  crew: [
+    { id: MAIN, ...CHIEF, hue: 200, station: 'mess', isBusy: false },
+    // The standing crew: on the payroll, in the mess, until a subagent needs a body.
+    ...ROSTER.slice(0, 4).map((hand, i): Mate => ({
+      id: `bunk:${i}`,
+      ...hand,
+      hue: (i * 67 + 20) % 360,
+      station: 'mess',
+      isBusy: false,
+    })),
+  ],
   log: [{ who: 'Ship', text: 'Shift started. Coffee is a rumour.', kind: 'idle' }],
   alert: 'allstop',
   jobs: 0,
@@ -32,13 +43,20 @@ const EMPTY: Ship = {
 }
 
 const ship = atom({ plugin: 'lower-decks', key: 'ship' } as const, EMPTY, {
-  shape: 'ship-1',
+  shape: 'ship-2',
 })
 
 function mateOf(state: Ship, id: string): { crew: Mate[]; mate: Mate; isNew: boolean } {
   const found = state.crew.find(m => m.id === id)
   if (found !== undefined) {
     return { crew: state.crew, mate: found, isNew: false }
+  }
+  // Whoever is loafing gets the job before anyone new is thawed.
+  const loafer = state.crew.find(m => m.id !== MAIN && !m.isBusy)
+  if (loafer !== undefined) {
+    const mate = { ...loafer, id }
+
+    return { crew: state.crew.map(m => (m === loafer ? mate : m)), mate, isNew: true }
   }
   const taken = new Set(state.crew.map(m => m.name))
   const free = ROSTER.find(r => !taken.has(r.name)) ?? {
@@ -48,20 +66,12 @@ function mateOf(state: Ship, id: string): { crew: Mate[]; mate: Mate; isNew: boo
   const mate: Mate = {
     id,
     ...free,
-    hue: (state.hires * 67 + 20) % 360,
+    hue: (state.crew.length * 67 + 20) % 360,
     station: 'cryo',
     isBusy: true,
   }
-  // Nine fit on the ship: the longest-idle hand goes back in a pod.
-  const kept = state.crew.length >= 9 ? dropIdle(state.crew) : state.crew
 
-  return { crew: [...kept, mate], mate, isNew: true }
-}
-
-function dropIdle(crew: Mate[]): Mate[] {
-  const gone = crew.find(m => m.id !== MAIN && !m.isBusy) ?? crew.find(m => m.id !== MAIN)
-
-  return crew.filter(m => m !== gone)
+  return { crew: [...state.crew, mate], mate, isNew: true }
 }
 
 function logged(state: Ship, who: string, text: string, kind: EntryKind): Entry[] {
@@ -84,6 +94,9 @@ export const register: Register = on => {
   let isTranslating = false
   let misses = 0
   let lines = 0
+  // Quarter-minutes with nothing to do, and how many insults that has produced.
+  let idle = 0
+  let quips = 0
 
   on('session.start', async ($, e, next) => {
     await $.command.register({
@@ -102,6 +115,45 @@ export const register: Register = on => {
         isTranslating = false
       })
     })
+
+    $.clock.every(15000, () => {
+      void loaf().catch(() => undefined)
+    })
+
+    async function loaf(): Promise<void> {
+      const now = await read($, ship)
+      if (now.alert !== 'allstop' || now.crew.some(m => m.isBusy)) {
+        idle = 0
+
+        return
+      }
+      idle += 1
+      // First jab after half a minute, then every 45 seconds, then rarely.
+      if (idle < 2 || idle % 3 !== 2 || (idle > 40 && idle % 12 !== 2)) {
+        return
+      }
+      quips += 1
+      const roll = Math.floor(Math.random() * 1000)
+      await update($, ship, (s): Ship => {
+        if (s.alert !== 'allstop' || s.crew.length < 2) {
+          return s
+        }
+        const a = s.crew[(roll + quips) % s.crew.length]
+        const others = s.crew.filter(m => m !== a)
+        const b = others[(roll >> 3) % others.length]
+        const quip = BANTER[(roll + quips * 7) % BANTER.length]
+        if (a === undefined || b === undefined || quip === undefined) {
+          return s
+        }
+        const text = quip.text.replace(/\{b\}/g, b.name)
+
+        return {
+          ...s,
+          crew: s.crew.map(m => (m === a ? { ...m, station: quip.at ?? m.station } : m)),
+          log: logged(s, a.name, text, 'idle'),
+        }
+      })
+    }
 
     async function translate(job: { id: string; text: string }): Promise<void> {
       let line: string | undefined
@@ -137,9 +189,14 @@ export const register: Register = on => {
   })
 
   on('command.run', { command: 'lower-decks' }, async $ => {
-    await $.ui.open({ id: PANE, title: SHIP })
+    const opened = await $.ui.open({ id: PANE, title: SHIP })
 
-    return { text: `${SHIP} crew panel opened.` }
+    return {
+      text: opened.isPlaced
+        ? `${SHIP} crew panel opened.`
+        : `No side panel in this app (${opened.reason}), so the ${SHIP} is drawn here and the log runs above the prompt.`,
+      isTextDisplayOnly: true,
+    }
   })
 
   on('turn.start', async ($, e, next) => {
@@ -147,7 +204,7 @@ export const register: Register = on => {
       const id = e.agentId ?? MAIN
       await update($, ship, (s): Ship => {
         const { next: moved, mate } = post(s, id, id === MAIN ? 'mess' : 'cryo', true)
-        const text = id === MAIN ? pick(ORDERS, s.jobs + s.log.length) : `Thawed and assigned. ${mate.flaw}.`
+        const text = id === MAIN ? pick(ORDERS, s.jobs + s.log.length) : `Dragged out of the mess and assigned. Known issue: ${mate.flaw}.`
 
         return { ...moved, alert: 'underway', breachAt: undefined, log: logged(moved, mate.name, text, id === MAIN ? 'bridge' : 'hire') }
       })
@@ -161,6 +218,7 @@ export const register: Register = on => {
   on('tool.call', async ($, e, next) => {
     const id = e.agentId ?? MAIN
     const job = jobOf(String(e.tool), e as unknown as Record<string, unknown>)
+    idle = 0
     lines += 1
     const n = lines
     try {
@@ -234,7 +292,7 @@ export const register: Register = on => {
 
         return {
           ...s,
-          crew: s.crew.map(m => (m.id === MAIN ? { ...m, station: 'mess' as const, isBusy: false } : m)),
+          crew: s.crew.map(m => (m.id === MAIN || !m.isBusy ? { ...m, station: 'mess' as const, isBusy: false } : m)),
           alert: 'allstop',
           breachAt: undefined,
           log: logged(s, 'Ship', text, 'idle'),
@@ -251,45 +309,15 @@ export const register: Register = on => {
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    const state = await read($, ship)
     const { Box, Text } = $.ui.resolve(e)
-    const isGlance = e.props.placement === 'widget'
+    const state = await read($, ship)
     const rows = e.viewport?.rows ?? 30
+    const isGlance = e.props.placement === 'widget'
     const room = isGlance ? 2 : Math.max(4, Math.min(14, rows - 22))
-    const recent = state.log.slice(-room).reverse()
-    const banner =
-      state.alert === 'breach'
-        ? 'HULL BREACH. AGAIN.'
-        : state.alert === 'allstop'
-          ? 'ALL STOP. Awaiting the bridge.'
-          : 'Underway. Allegedly.'
-
-    const logRows = recent.map((entry, i) => (
-      <Text dimColor={i > 0 && entry.kind !== 'breach'} color={entry.kind === 'breach' ? 'error' : undefined}>
-        <Text bold>{entry.who}:</Text> {entry.text}
-      </Text>
-    ))
 
     if (e.surface === 'terminal') {
-      return (
-        <Box flexDirection="column">
-          <Text bold color={state.alert === 'breach' ? 'error' : state.alert === 'allstop' ? 'warning' : 'success'}>
-            {banner}
-          </Text>
-          {state.crew.map(m => (
-            <Text dimColor={!m.isBusy}>
-              {m.isBusy ? '>' : 'z'} {m.name} ({m.flaw}): {roomLabel(m.station).toLowerCase()}
-            </Text>
-          ))}
-          <Text dimColor>
-            jobs {state.jobs} / breaches {state.breaches} / hires {state.hires}
-          </Text>
-          <Text> </Text>
-          {logRows}
-        </Box>
-      )
+      return <Box flexDirection="column">{plain(state, room, Text)}</Box>
     }
-
     const { Svg } = $.ui.resolve(e)
 
     return (
@@ -300,8 +328,98 @@ export const register: Register = on => {
             {state.crew.map(m => `${m.name} (${m.flaw})`).join(' · ')}
           </Text>
         )}
-        <Box flexDirection="column">{logRows}</Box>
+        <Box flexDirection="column">{logRows(state, room, Text)}</Box>
       </Box>
     )
   })
+
+  // Where no surface seats the pane, /lower-decks draws the ship in the transcript.
+  on('ui.render', { component: 'CommandOutput', props: { command: 'lower-decks' } }, async ($, e) => {
+    const { Box, Text } = $.ui.resolve(e)
+    const state = await read($, ship)
+    const note = <Text dimColor>{e.props.text}</Text>
+
+    if (e.surface === 'terminal') {
+      return (
+        <Box flexDirection="column">
+          {note}
+          {plain(state, 6, Text)}
+        </Box>
+      )
+    }
+    const { Svg } = $.ui.resolve(e)
+
+    return (
+      <Box flexDirection="column" gap={1}>
+        {note}
+        <Svg source={scene(state, SHIP)} alt={describe(state)} />
+        <Box flexDirection="column">{logRows(state, 6, Text)}</Box>
+      </Box>
+    )
+  })
+
+  // And the newest log line rides above the prompt while the pane is not on screen.
+  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    const panes = await $.ui.panes()
+    if (e.props.hasSurvey || panes.some(p => p.id === PANE && p.isPlaced && p.isShown)) {
+      return next(e)
+    }
+    const { Box, Text } = $.ui.resolve(e)
+    const state = await read($, ship)
+    const last = state.log[state.log.length - 1]
+
+    return (
+      <Box>
+        <Text color={tone(state)} bold>
+          {SHIP}{' '}
+        </Text>
+        <Text dimColor wrap="truncate-end">
+          {last === undefined ? banner(state) : `${last.who}: ${last.text}`}
+        </Text>
+      </Box>
+    )
+  })
+}
+
+type TextTag = Elements['terminal']['Text']
+
+function logRows(state: Ship, room: number, Text: TextTag) {
+  return state.log
+    .slice(-room)
+    .reverse()
+    .map((entry, i) => (
+      <Text dimColor={i > 0 && entry.kind !== 'breach'} color={entry.kind === 'breach' ? 'error' : undefined}>
+        <Text bold>{entry.who}:</Text> {entry.text}
+      </Text>
+    ))
+}
+
+function plain(state: Ship, room: number, Text: TextTag) {
+  return [
+    <Text bold color={tone(state)}>
+      {banner(state)}
+    </Text>,
+    ...state.crew.map(m => (
+      <Text dimColor={!m.isBusy}>
+        {m.isBusy ? '>' : 'z'} {m.name} ({m.flaw}): {roomLabel(m.station).toLowerCase()}
+      </Text>
+    )),
+    <Text dimColor>
+      jobs {state.jobs} / breaches {state.breaches} / hires {state.hires}
+    </Text>,
+    <Text> </Text>,
+    ...logRows(state, room, Text),
+  ]
+}
+
+function banner(state: Ship): string {
+  return state.alert === 'breach'
+    ? 'HULL BREACH. AGAIN.'
+    : state.alert === 'allstop'
+      ? 'ALL STOP. Awaiting the bridge.'
+      : 'Underway. Allegedly.'
+}
+
+function tone(state: Ship): 'error' | 'warning' | 'success' {
+  return state.alert === 'breach' ? 'error' : state.alert === 'allstop' ? 'warning' : 'success'
 }

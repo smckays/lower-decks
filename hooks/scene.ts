@@ -62,6 +62,41 @@ function dude(m: Mate, x: number, y: number, labelY = 11): string {
   return `<g transform="translate(${x} ${y})"><g>${bob}<rect x="-2.6" y="-1" width="2.2" height="4" fill="#27333b"/><rect x="0.6" y="-1" width="2.2" height="4" fill="#27333b"/><rect x="-4.5" y="-11" width="9" height="11" rx="3" fill="${suit}"/><line x1="-4" y1="-8" x2="-8" y2="-4" stroke="${suit}" stroke-width="2.4" stroke-linecap="round"/>${arm}<circle cx="0" cy="-15" r="5" fill="#b9e08a"/><path d="M -5.4 -16 A 5.4 5.4 0 0 1 5.4 -16 Z" fill="#f2b632"/><rect x="-6.5" y="-16.6" width="13" height="1.4" rx="0.7" fill="#f2b632"/><circle cx="-1.8" cy="-13.6" r="0.9" fill="#1a2329"/><circle cx="1.8" cy="-13.6" r="0.9" fill="#1a2329"/><line x1="-1.6" y1="-11.4" x2="1.6" y2="-11.4" stroke="#1a2329" stroke-width="0.8"/></g><text y="${labelY}" font-size="6.5" text-anchor="middle" fill="#dfe8ee" font-family="monospace">${esc(m.name.replace('Chief ', ''))}</text></g>`
 }
 
+function wrap(text: string, width: number, max: number): string[] {
+  const lines: string[] = []
+  let line = ''
+  for (const word of text.split(' ')) {
+    if (line !== '' && (line + ' ' + word).length > width) {
+      lines.push(line)
+      line = word
+    } else {
+      line = line === '' ? word : line + ' ' + word
+    }
+  }
+  if (line !== '') {
+    lines.push(line)
+  }
+  if (lines.length > max) {
+    return [...lines.slice(0, max - 1), (lines[max - 1] ?? '').slice(0, width - 1) + '…']
+  }
+
+  return lines
+}
+
+function bubble(text: string, x: number, y: number): string {
+  const lines = wrap(text, 34, 3)
+  const w = Math.max(...lines.map(l => l.length)) * 3.95 + 12
+  const h = lines.length * 8.5 + 6
+  const left = Math.max(4, Math.min(476 - w, x - w / 2))
+  const top = Math.max(3, y - 24 - h)
+  const tip = Math.max(left + 6, Math.min(left + w - 6, x))
+  const rows = lines
+    .map((l, i) => `<text x="${left + 6}" y="${top + 10 + i * 8.5}" font-size="6.5" fill="#1a2329" font-family="monospace">${esc(l)}</text>`)
+    .join('')
+
+  return `<g><polygon points="${tip - 4},${top + h - 1} ${tip + 4},${top + h - 1} ${x},${top + h + 6}" fill="#f4f1e4"/><rect x="${left}" y="${top}" width="${w}" height="${h}" rx="4" fill="#f4f1e4"/>${rows}</g>`
+}
+
 /** The whole ship as one SVG document. */
 export function scene(ship: Ship, name: string): string {
   const isMoving = ship.alert !== 'allstop'
@@ -81,6 +116,7 @@ export function scene(ship: Ship, name: string): string {
     .map(([x, y], i) => `<circle cx="${x}" cy="${y}" r="${i % 3 === 0 ? 1.2 : 0.7}" fill="#cfd8dc" opacity="${0.4 + (i % 4) * 0.15}"/>`)
     .join('')
 
+  const spots = new Map<string, [number, number]>()
   const rooms = (Object.keys(ROOMS) as Station[])
     .map(id => {
       const r = ROOMS[id]
@@ -91,11 +127,21 @@ export function scene(ship: Ship, name: string): string {
       const flash = isBreached ? '<animate attributeName="fill" values="#4a1c1c;#7a2020;#4a1c1c" dur="0.6s" repeatCount="indefinite"/>' : ''
       const step = Math.min(22, (r.w - 16) / Math.max(1, here.length))
       const start = r.x + r.w / 2 - (step * (here.length - 1)) / 2 + (id === 'bridge' ? -28 : 0)
-      const crew = here.map((m, i) => dude(m, start + step * i, r.y + r.h - 18, here.length > 3 && i % 2 === 1 ? 17 : 10)).join('')
+      const crew = here
+        .map((m, i) => {
+          spots.set(m.name, [start + step * i, r.y + r.h - 18])
+
+          return dude(m, start + step * i, r.y + r.h - 18, here.length > 3 && i % 2 === 1 ? 17 : 10)
+        })
+        .join('')
 
       return `<rect x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}" fill="${fill}" stroke="#30414d" stroke-width="1.5">${flash}</rect>${prop(id, r, isLit)}<text x="${r.x + 5}" y="${r.y + 11}" font-size="7" fill="${isLit ? '#e8f1f5' : '#6f8594'}" font-family="monospace" letter-spacing="0.6">${r.label}</text>${crew}`
     })
     .join('')
+
+  const last = ship.log[ship.log.length - 1]
+  const at = last === undefined ? undefined : spots.get(last.who)
+  const said = last !== undefined && at !== undefined ? bubble(last.text, at[0], at[1]) : ''
 
   const flames = isMoving
     ? [102, 150, 200]
@@ -106,7 +152,7 @@ export function scene(ship: Ship, name: string): string {
         .join('')
     : ''
 
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 300" width="480" height="300"><rect width="480" height="300" fill="#0a1016"/>${stars}${flames}<rect x="36" y="88" width="12" height="28" fill="#4a5b67"/><rect x="36" y="136" width="12" height="28" fill="#4a5b67"/><rect x="36" y="186" width="12" height="28" fill="#4a5b67"/><path d="M 44 62 H 420 Q 470 110 462 160 Q 452 215 420 243 H 44 Z" fill="#55656f" stroke="#8d99a6" stroke-width="2"/>${rooms}<line x1="385" y1="62" x2="385" y2="${TOP + 22}" stroke="#c9a227" stroke-width="3"/><text x="240" y="54" font-size="9" text-anchor="middle" fill="#8d99a6" font-family="monospace" letter-spacing="2">${esc(name.toUpperCase())}</text><circle cx="62" cy="268" r="5" fill="${lamp}">${ship.alert === 'underway' ? '' : '<animate attributeName="opacity" values="1;0.25;1" dur="0.8s" repeatCount="indefinite"/>'}</circle><text x="74" y="271.5" font-size="9" fill="${lamp}" font-family="monospace" letter-spacing="1">${banner}</text><text x="430" y="271.5" font-size="7" text-anchor="end" fill="#6f8594" font-family="monospace">JOBS ${ship.jobs}  BREACHES ${ship.breaches}  HIRES ${ship.hires}</text></svg>`
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 300" width="480" height="300"><rect width="480" height="300" fill="#0a1016"/>${stars}${flames}<rect x="36" y="88" width="12" height="28" fill="#4a5b67"/><rect x="36" y="136" width="12" height="28" fill="#4a5b67"/><rect x="36" y="186" width="12" height="28" fill="#4a5b67"/><path d="M 44 62 H 420 Q 470 110 462 160 Q 452 215 420 243 H 44 Z" fill="#55656f" stroke="#8d99a6" stroke-width="2"/>${rooms}<line x1="385" y1="62" x2="385" y2="${TOP + 22}" stroke="#c9a227" stroke-width="3"/><text x="240" y="54" font-size="9" text-anchor="middle" fill="#8d99a6" font-family="monospace" letter-spacing="2">${esc(name.toUpperCase())}</text><circle cx="62" cy="268" r="5" fill="${lamp}">${ship.alert === 'underway' ? '' : '<animate attributeName="opacity" values="1;0.25;1" dur="0.8s" repeatCount="indefinite"/>'}</circle><text x="74" y="271.5" font-size="9" fill="${lamp}" font-family="monospace" letter-spacing="1">${banner}</text><text x="430" y="271.5" font-size="7" text-anchor="end" fill="#6f8594" font-family="monospace">JOBS ${ship.jobs}  BREACHES ${ship.breaches}  HIRES ${ship.hires}</text>${said}</svg>`
 }
 
 /** What the picture says, for a surface that draws no picture. */
