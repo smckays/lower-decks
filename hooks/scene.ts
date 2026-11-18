@@ -1,65 +1,109 @@
 import type { Mate, Ship, Station } from '../types'
+import { SHIP_ART, SHIP_SCALE, SPRITES } from './art'
 
 type Room = { x: number; y: number; w: number; h: number; label: string }
 
-const TOP = 70
-const MID = 150
-const LOW = 235
-
-// A side cross-section: engines to the left, nose to the right.
+// Where each compartment sits in the ship illustration (1024 x 572).
 const ROOMS: Record<Station, Room> = {
-  mess: { x: 50, y: TOP, w: 100, h: 80, label: 'MESS' },
-  sensors: { x: 150, y: TOP, w: 100, h: 80, label: 'SENSORS' },
-  comms: { x: 250, y: TOP, w: 90, h: 80, label: 'COMMS' },
-  bridge: { x: 340, y: TOP, w: 90, h: 80, label: 'BRIDGE' },
-  reactor: { x: 50, y: MID, w: 70, h: 85, label: 'REACTOR' },
-  engine: { x: 120, y: MID, w: 80, h: 85, label: 'ENGINES' },
-  workshop: { x: 200, y: MID, w: 85, h: 85, label: 'WORKSHOP' },
-  hold: { x: 285, y: MID, w: 80, h: 85, label: 'HOLD' },
-  cryo: { x: 365, y: MID, w: 65, h: 85, label: 'CRYO' },
+  hold: { x: 298, y: 158, w: 150, h: 110, label: 'HOLD' },
+  mess: { x: 468, y: 158, w: 152, h: 110, label: 'MESS' },
+  comms: { x: 640, y: 158, w: 116, h: 110, label: 'COMMS' },
+  sensors: { x: 775, y: 206, w: 125, h: 62, label: 'SENSORS' },
+  engine: { x: 142, y: 302, w: 133, h: 114, label: 'ENGINES' },
+  reactor: { x: 296, y: 302, w: 134, h: 114, label: 'REACTOR' },
+  workshop: { x: 450, y: 302, w: 132, h: 114, label: 'WORKSHOP' },
+  cryo: { x: 602, y: 302, w: 154, h: 114, label: 'CRYO' },
+  bridge: { x: 775, y: 302, w: 125, h: 114, label: 'BRIDGE DOOR' },
+}
+
+const WIDTH = 1024
+const HEIGHT = 630
+// The whole document has to stay under the engine's 131,072 characters.
+const BUDGET = 124000
+const TALL = 62
+
+// Overalls: the lineup's own five, then the later hires.
+const SUITS: Record<string, [string, string]> = {
+  'Chief Hask': ['#62848B', '#4F6E76'],
+  Gary: ['#B4572E', '#8E4424'],
+  Mott: ['#77813F', '#5D6631'],
+  Pim: ['#348B85', '#286E69'],
+  Dregs: ['#7A5483', '#5F4167'],
+  Vex: ['#A23B4A', '#7F2E3A'],
+  Oona: ['#B98A2E', '#916C24'],
+  Skiv: ['#6B6F78', '#53565E'],
+  Lump: ['#C26A9A', '#9A537A'],
+}
+
+const AT_WORK: Record<Station, string> = {
+  hold: 'carry',
+  workshop: 'weld',
+  engine: 'lever',
+  sensors: 'radar',
+  comms: 'radar',
+  reactor: 'panic',
+  cryo: 'shrug',
+  bridge: 'shrug',
+  mess: 'shrug',
+}
+
+const AT_REST: Record<Station, string> = {
+  hold: 'sleep',
+  cryo: 'sleep',
+  reactor: 'coffee',
+  engine: 'coffee',
+  workshop: 'broom',
+  sensors: 'glare',
+  comms: 'cards',
+  bridge: 'glare',
+  mess: 'glare',
 }
 
 function esc(text: string): string {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }
 
-function prop(station: Station, r: Room, isLit: boolean): string {
-  const cx = r.x + r.w / 2
-  const floor = r.y + r.h
-  const dim = '#3d4f5c'
-
-  switch (station) {
-    case 'hold':
-      return `<rect x="${r.x + 8}" y="${floor - 16}" width="16" height="14" fill="#7a5a3a"/><rect x="${r.x + 26}" y="${floor - 12}" width="12" height="10" fill="#8a6a45"/><rect x="${r.x + 12}" y="${floor - 28}" width="13" height="12" fill="#6b4e33"/>`
-    case 'reactor':
-      return `<circle cx="${cx}" cy="${r.y + 34}" r="13" fill="${isLit ? '#2bd9a0' : '#1d6f5a'}" opacity="0.9">${isLit ? '<animate attributeName="r" values="12;15;12" dur="1.1s" repeatCount="indefinite"/>' : ''}</circle><circle cx="${cx}" cy="${r.y + 34}" r="18" fill="none" stroke="${dim}" stroke-width="2"/>`
-    case 'engine':
-      return `<rect x="${r.x + 10}" y="${r.y + 22}" width="10" height="26" fill="${dim}"/><rect x="${r.x + 26}" y="${r.y + 22}" width="10" height="26" fill="${dim}">${isLit ? '<animate attributeName="height" values="26;14;26" dur="0.7s" repeatCount="indefinite"/>' : ''}</rect><rect x="${r.x + 42}" y="${r.y + 22}" width="10" height="26" fill="${dim}">${isLit ? '<animate attributeName="height" values="14;26;14" dur="0.7s" repeatCount="indefinite"/>' : ''}</rect>`
-    case 'workshop':
-      return `<rect x="${r.x + 10}" y="${floor - 14}" width="34" height="4" fill="#8d99a6"/><rect x="${r.x + 13}" y="${floor - 10}" width="3" height="10" fill="#8d99a6"/><rect x="${r.x + 38}" y="${floor - 10}" width="3" height="10" fill="#8d99a6"/>${isLit ? `<circle cx="${r.x + 27}" cy="${floor - 17}" r="2" fill="#ffd54a"><animate attributeName="opacity" values="1;0;1;0.3;1" dur="0.35s" repeatCount="indefinite"/></circle>` : ''}`
-    case 'sensors':
-      return `<path d="M ${cx - 16} ${r.y + 42} A 16 16 0 0 1 ${cx + 16} ${r.y + 42}" fill="none" stroke="#8d99a6" stroke-width="3"/><line x1="${cx}" y1="${r.y + 42}" x2="${cx}" y2="${r.y + 28}" stroke="#8d99a6" stroke-width="2"/>${isLit ? `<circle cx="${cx}" cy="${r.y + 26}" r="3" fill="none" stroke="#62d0ff"><animate attributeName="r" values="2;14" dur="1s" repeatCount="indefinite"/><animate attributeName="opacity" values="1;0" dur="1s" repeatCount="indefinite"/></circle>` : ''}`
-    case 'comms':
-      return `<line x1="${cx}" y1="${r.y + 46}" x2="${cx}" y2="${r.y + 20}" stroke="#8d99a6" stroke-width="2"/><circle cx="${cx}" cy="${r.y + 19}" r="3" fill="${isLit ? '#ff6b6b' : dim}">${isLit ? '<animate attributeName="opacity" values="1;0.2;1" dur="0.8s" repeatCount="indefinite"/>' : ''}</circle>`
-    case 'cryo':
-      return `<rect x="${r.x + 9}" y="${r.y + 20}" width="14" height="30" rx="7" fill="#23485c" stroke="#62d0ff" stroke-width="1"/><rect x="${r.x + 28}" y="${r.y + 20}" width="14" height="30" rx="7" fill="#23485c" stroke="#62d0ff" stroke-width="1"/><rect x="${r.x + 47}" y="${r.y + 20}" width="14" height="30" rx="7" fill="#23485c" stroke="#62d0ff" stroke-width="1" opacity="0.6"/>`
-    case 'mess':
-      return `<rect x="${r.x + 14}" y="${floor - 13}" width="40" height="3" fill="#8d99a6"/><rect x="${r.x + 32}" y="${floor - 10}" width="3" height="10" fill="#8d99a6"/><rect x="${r.x + 20}" y="${floor - 18}" width="5" height="5" fill="#d9c9a3"/>`
-    case 'bridge':
-      return `<rect x="${r.x + 30}" y="${r.y + 20}" width="30" height="${r.h - 20}" fill="#0d151b" stroke="${dim}"/><text x="${r.x + 45}" y="${r.y + 44}" font-size="5.5" text-anchor="middle" fill="#ff6b6b" font-family="monospace">NO CREW</text><text x="${r.x + 45}" y="${r.y + 52}" font-size="5.5" text-anchor="middle" fill="#ff6b6b" font-family="monospace">BEYOND</text><text x="${r.x + 45}" y="${r.y + 60}" font-size="5.5" text-anchor="middle" fill="#ff6b6b" font-family="monospace">THIS POINT</text>`
-  }
+function short(name: string): string {
+  return name.replace('Chief ', '')
 }
 
-function dude(m: Mate, x: number, y: number, labelY = 11): string {
-  const suit = `hsl(${m.hue} 55% 52%)`
-  const bob = m.isBusy
-    ? `<animateTransform attributeName="transform" type="translate" values="0 0;0 -3;0 0" dur="${0.5 + (m.hue % 5) * 0.06}s" repeatCount="indefinite"/>`
-    : ''
-  const arm = m.isBusy
-    ? `<line x1="4" y1="-8" x2="9" y2="-12" stroke="${suit}" stroke-width="2.4" stroke-linecap="round"><animateTransform attributeName="transform" type="rotate" values="0 4 -8;-35 4 -8;0 4 -8" dur="0.4s" repeatCount="indefinite"/></line>`
-    : `<text x="6" y="-16" font-size="7" fill="#9fb3c0" font-family="monospace">z</text>`
+function poseOf(m: Mate, isTaunting: boolean): string {
+  const portrait = short(m.name).toLowerCase()
+  if (m.station === 'mess') {
+    if (isTaunting && !m.isBusy) {
+      return 'laugh'
+    }
 
-  return `<g transform="translate(${x} ${y})"><g>${bob}<rect x="-2.6" y="-1" width="2.2" height="4" fill="#27333b"/><rect x="0.6" y="-1" width="2.2" height="4" fill="#27333b"/><rect x="-4.5" y="-11" width="9" height="11" rx="3" fill="${suit}"/><line x1="-4" y1="-8" x2="-8" y2="-4" stroke="${suit}" stroke-width="2.4" stroke-linecap="round"/>${arm}<circle cx="0" cy="-15" r="5" fill="#b9e08a"/><path d="M -5.4 -16 A 5.4 5.4 0 0 1 5.4 -16 Z" fill="#f2b632"/><rect x="-6.5" y="-16.6" width="13" height="1.4" rx="0.7" fill="#f2b632"/><circle cx="-1.8" cy="-13.6" r="0.9" fill="#1a2329"/><circle cx="1.8" cy="-13.6" r="0.9" fill="#1a2329"/><line x1="-1.6" y1="-11.4" x2="1.6" y2="-11.4" stroke="#1a2329" stroke-width="0.8"/></g><text y="${labelY}" font-size="6.5" text-anchor="middle" fill="#dfe8ee" font-family="monospace">${esc(m.name.replace('Chief ', ''))}</text></g>`
+    return SPRITES[portrait] === undefined ? (m.isBusy ? 'shrug' : 'glare') : portrait
+  }
+
+  return m.isBusy ? AT_WORK[m.station] : AT_REST[m.station]
+}
+
+function nameTag(m: Mate, x: number, floor: number): string {
+  return `<text x="${x}" y="${floor + 11}" font-size="10" text-anchor="middle" fill="#f1f5f7" stroke="#1a2329" stroke-width="2.5" paint-order="stroke" font-family="monospace">${esc(short(m.name))}</text>`
+}
+
+function figure(m: Mate, pose: string, x: number, floor: number, tall: number): string {
+  const art = SPRITES[pose]
+  if (art === undefined) {
+    return stick(m, x, floor)
+  }
+  const [suit, shade] = SUITS[m.name] ?? [`hsl(${m.hue} 45% 45%)`, `hsl(${m.hue} 45% 34%)`]
+  const k = tall / art.h
+  const body = art.body.replace(/\{o\}/g, suit).replace(/\{d\}/g, shade)
+  const bob = m.isBusy
+    ? `<animateTransform attributeName="transform" type="translate" values="0 0;0 -3;0 0" dur="${0.5 + (m.hue % 5) * 0.07}s" repeatCount="indefinite"/>`
+    : ''
+
+  return `<g>${bob}<g transform="translate(${(x - (art.w * k) / 2).toFixed(1)} ${floor - tall}) scale(${k.toFixed(3)})">${body}</g></g>${nameTag(m, x, floor)}`
+}
+
+// A few shapes, for when the drawing has no room left for another illustration.
+function stick(m: Mate, x: number, floor: number): string {
+  const suit = (SUITS[m.name] ?? [`hsl(${m.hue} 45% 45%)`])[0]
+
+  return `<g transform="translate(${x} ${floor})"><rect x="-10" y="-26" width="20" height="26" rx="6" fill="${suit}"/><circle cx="0" cy="-36" r="12" fill="#7AA763"/><path d="M -13 -38 A 13 13 0 0 1 13 -38 Z" fill="#F4D637"/><circle cx="-4" cy="-34" r="2" fill="#1a2329"/><circle cx="4" cy="-34" r="2" fill="#1a2329"/></g>${nameTag(m, x, floor)}`
 }
 
 function wrap(text: string, width: number, max: number): string[] {
@@ -84,17 +128,17 @@ function wrap(text: string, width: number, max: number): string[] {
 }
 
 function bubble(text: string, x: number, y: number): string {
-  const lines = wrap(text, 34, 3)
-  const w = Math.max(...lines.map(l => l.length)) * 3.95 + 12
-  const h = lines.length * 8.5 + 6
-  const left = Math.max(4, Math.min(476 - w, x - w / 2))
-  const top = Math.max(3, y - 24 - h)
-  const tip = Math.max(left + 6, Math.min(left + w - 6, x))
+  const lines = wrap(text, 36, 3)
+  const w = Math.max(...lines.map(l => l.length)) * 7.3 + 20
+  const h = lines.length * 15 + 10
+  const left = Math.max(6, Math.min(WIDTH - 6 - w, x - w / 2))
+  const top = Math.max(4, y - 12 - h)
+  const tip = Math.max(left + 10, Math.min(left + w - 10, x))
   const rows = lines
-    .map((l, i) => `<text x="${left + 6}" y="${top + 10 + i * 8.5}" font-size="6.5" fill="#1a2329" font-family="monospace">${esc(l)}</text>`)
+    .map((l, i) => `<text x="${left + 10}" y="${top + 17 + i * 15}" font-size="12" fill="#1a2329" font-family="monospace">${esc(l)}</text>`)
     .join('')
 
-  return `<g><polygon points="${tip - 4},${top + h - 1} ${tip + 4},${top + h - 1} ${x},${top + h + 6}" fill="#f4f1e4"/><rect x="${left}" y="${top}" width="${w}" height="${h}" rx="4" fill="#f4f1e4"/>${rows}</g>`
+  return `<g><polygon points="${tip - 7},${top + h - 1} ${tip + 7},${top + h - 1} ${x},${top + h + 10}" fill="#f4f1e4"/><rect x="${left}" y="${top}" width="${w}" height="${h}" rx="7" fill="#f4f1e4"/>${rows}</g>`
 }
 
 /** The whole ship as one SVG document. */
@@ -102,57 +146,63 @@ export function scene(ship: Ship, name: string): string {
   const isMoving = ship.alert !== 'allstop'
   const lamp = ship.alert === 'breach' ? '#ff4d4d' : ship.alert === 'allstop' ? '#f2b632' : '#2bd9a0'
   const banner =
-    ship.alert === 'breach' ? 'HULL BREACH. AGAIN.' : ship.alert === 'allstop' ? 'ALL STOP. AWAITING THE BRIDGE.' : 'UNDERWAY. ALLEGEDLY.'
+    ship.alert === 'breach' ? 'HULL BREACH. NOTED.' : ship.alert === 'allstop' ? 'ALL STOP. AWAITING THE BRIDGE.' : 'UNDERWAY. FOR NOW.'
+  const last = ship.log[ship.log.length - 1]
+
+  const stars = [
+    [40, 60], [150, 30], [330, 70], [470, 26], [560, 80], [860, 50], [975, 140], [1000, 330],
+    [30, 250], [60, 520], [240, 540], [420, 500], [640, 520], [900, 500], [960, 560], [20, 400],
+  ]
+    .map(([x, y], i) => `<circle cx="${x}" cy="${y}" r="${i % 3 === 0 ? 2.2 : 1.3}" fill="#cfd8dc" opacity="${0.4 + (i % 4) * 0.15}"/>`)
+    .join('')
+
+  const flames = isMoving
+    ? [182, 332, 398]
+        .map(
+          (y, i) =>
+            `<polygon points="72,${y - 16} 72,${y + 16} 18,${y}" fill="#ff9d3c"><animate attributeName="points" values="72,${y - 16} 72,${y + 16} 18,${y};72,${y - 16} 72,${y + 16} 44,${y};72,${y - 16} 72,${y + 16} 18,${y}" dur="${0.25 + i * 0.07}s" repeatCount="indefinite"/></polygon>`,
+        )
+        .join('')
+    : ''
 
   const byStation = new Map<Station, Mate[]>()
   for (const m of ship.crew) {
     byStation.set(m.station, [...(byStation.get(m.station) ?? []), m])
   }
 
-  const stars = [
-    [22, 30], [70, 18], [130, 40], [190, 14], [246, 34], [318, 20], [380, 44], [452, 26],
-    [18, 270], [96, 286], [210, 274], [300, 290], [410, 278], [466, 150], [10, 150],
-  ]
-    .map(([x, y], i) => `<circle cx="${x}" cy="${y}" r="${i % 3 === 0 ? 1.2 : 0.7}" fill="#cfd8dc" opacity="${0.4 + (i % 4) * 0.15}"/>`)
-    .join('')
+  let shade = ''
+  let tags = ''
+  const placed: { m: Mate; x: number; floor: number; tall: number }[] = []
+  for (const id of Object.keys(ROOMS) as Station[]) {
+    const r = ROOMS[id]
+    const here = byStation.get(id) ?? []
+    const isLit = here.length > 0
+    if (ship.alert === 'breach' && ship.breachAt === id) {
+      shade += `<rect x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}" fill="#e02020" opacity="0.45"><animate attributeName="opacity" values="0.45;0.15;0.45" dur="0.6s" repeatCount="indefinite"/></rect>`
+    } else if (!isLit) {
+      shade += `<rect x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}" fill="#0a1016" opacity="0.38"/>`
+    }
+    tags += `<text x="${r.x + 7}" y="${r.y + 15}" font-size="10" fill="${isLit ? '#1a2329' : '#e8f1f5'}" font-family="monospace" letter-spacing="1" font-weight="bold">${r.label}</text>`
+    const step = Math.min(46, (r.w - 30) / Math.max(1, here.length))
+    const start = r.x + r.w / 2 - (step * (here.length - 1)) / 2
+    // A crowd shrinks a little so nobody stands inside anybody else.
+    const tall = here.length >= 4 ? Math.round(TALL * 0.8) : TALL
+    here.forEach((m, i) => placed.push({ m, x: Math.round(start + step * i), floor: r.y + r.h, tall }))
+  }
 
-  const spots = new Map<string, [number, number]>()
-  const rooms = (Object.keys(ROOMS) as Station[])
-    .map(id => {
-      const r = ROOMS[id]
-      const here = byStation.get(id) ?? []
-      const isLit = here.some(m => m.isBusy)
-      const isBreached = ship.alert === 'breach' && ship.breachAt === id
-      const fill = isBreached ? '#4a1c1c' : isLit ? '#22323d' : '#172129'
-      const flash = isBreached ? '<animate attributeName="fill" values="#4a1c1c;#7a2020;#4a1c1c" dur="0.6s" repeatCount="indefinite"/>' : ''
-      const step = Math.min(22, (r.w - 16) / Math.max(1, here.length))
-      const start = r.x + r.w / 2 - (step * (here.length - 1)) / 2 + (id === 'bridge' ? -28 : 0)
-      const crew = here
-        .map((m, i) => {
-          spots.set(m.name, [start + step * i, r.y + r.h - 18])
+  const head = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${WIDTH} ${HEIGHT}" width="${WIDTH}" height="${HEIGHT}"><rect width="${WIDTH}" height="${HEIGHT}" fill="#0a1016"/>${stars}${flames}<g transform="scale(${SHIP_SCALE})">${SHIP_ART}</g>${shade}${tags}`
+  const speaker = last === undefined ? undefined : placed.find(p => p.m.name === last.who)
+  const said = last !== undefined && speaker !== undefined ? bubble(last.text, speaker.x, speaker.floor - speaker.tall) : ''
+  const foot = `<text x="512" y="38" font-size="18" text-anchor="middle" fill="#8d99a6" font-family="monospace" letter-spacing="4">${esc(name.toUpperCase())}</text><circle cx="120" cy="596" r="9" fill="${lamp}">${ship.alert === 'underway' ? '' : '<animate attributeName="opacity" values="1;0.25;1" dur="0.8s" repeatCount="indefinite"/>'}</circle><text x="140" y="602" font-size="17" fill="${lamp}" font-family="monospace" letter-spacing="2">${banner}</text><text x="900" y="602" font-size="12" text-anchor="end" fill="#6f8594" font-family="monospace">JOBS ${ship.jobs}  BREACHES ${ship.breaches}  HIRES ${ship.hires}</text>${said}</svg>`
 
-          return dude(m, start + step * i, r.y + r.h - 18, here.length > 3 && i % 2 === 1 ? 17 : 10)
-        })
-        .join('')
+  let crew = ''
+  for (const p of placed) {
+    const isTaunting = last !== undefined && last.kind === 'idle' && last.who === p.m.name
+    const drawn = figure(p.m, poseOf(p.m, isTaunting), p.x, p.floor, p.tall)
+    crew += head.length + crew.length + drawn.length + foot.length > BUDGET ? stick(p.m, p.x, p.floor) : drawn
+  }
 
-      return `<rect x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}" fill="${fill}" stroke="#30414d" stroke-width="1.5">${flash}</rect>${prop(id, r, isLit)}<text x="${r.x + 5}" y="${r.y + 11}" font-size="7" fill="${isLit ? '#e8f1f5' : '#6f8594'}" font-family="monospace" letter-spacing="0.6">${r.label}</text>${crew}`
-    })
-    .join('')
-
-  const last = ship.log[ship.log.length - 1]
-  const at = last === undefined ? undefined : spots.get(last.who)
-  const said = last !== undefined && at !== undefined ? bubble(last.text, at[0], at[1]) : ''
-
-  const flames = isMoving
-    ? [102, 150, 200]
-        .map(
-          (y, i) =>
-            `<polygon points="38,${y - 7} 38,${y + 7} 10,${y}" fill="#ff9d3c"><animate attributeName="points" values="38,${y - 7} 38,${y + 7} 10,${y};38,${y - 7} 38,${y + 7} 22,${y};38,${y - 7} 38,${y + 7} 10,${y}" dur="${0.25 + i * 0.07}s" repeatCount="indefinite"/></polygon>`,
-        )
-        .join('')
-    : ''
-
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 300" width="480" height="300"><rect width="480" height="300" fill="#0a1016"/>${stars}${flames}<rect x="36" y="88" width="12" height="28" fill="#4a5b67"/><rect x="36" y="136" width="12" height="28" fill="#4a5b67"/><rect x="36" y="186" width="12" height="28" fill="#4a5b67"/><path d="M 44 62 H 420 Q 470 110 462 160 Q 452 215 420 243 H 44 Z" fill="#55656f" stroke="#8d99a6" stroke-width="2"/>${rooms}<line x1="385" y1="62" x2="385" y2="${TOP + 22}" stroke="#c9a227" stroke-width="3"/><text x="240" y="54" font-size="9" text-anchor="middle" fill="#8d99a6" font-family="monospace" letter-spacing="2">${esc(name.toUpperCase())}</text><circle cx="62" cy="268" r="5" fill="${lamp}">${ship.alert === 'underway' ? '' : '<animate attributeName="opacity" values="1;0.25;1" dur="0.8s" repeatCount="indefinite"/>'}</circle><text x="74" y="271.5" font-size="9" fill="${lamp}" font-family="monospace" letter-spacing="1">${banner}</text><text x="430" y="271.5" font-size="7" text-anchor="end" fill="#6f8594" font-family="monospace">JOBS ${ship.jobs}  BREACHES ${ship.breaches}  HIRES ${ship.hires}</text>${said}</svg>`
+  return head + crew + foot
 }
 
 /** What the picture says, for a surface that draws no picture. */

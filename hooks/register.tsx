@@ -23,6 +23,13 @@ const PANE = 'lower-decks'
 const MAIN = 'main'
 const MODEL = 'claude-haiku-5-5'
 
+// Where each hand loafs by default, so the mess is not standing room only.
+const HOME: Record<string, Station> = { Mott: 'hold', Dregs: 'comms', Vex: 'cryo', Skiv: 'hold', Lump: 'cryo' }
+
+function homeOf(name: string): Station {
+  return HOME[name] ?? 'mess'
+}
+
 const EMPTY: Ship = {
   crew: [
     { id: MAIN, ...CHIEF, hue: 200, station: 'mess', isBusy: false },
@@ -31,11 +38,11 @@ const EMPTY: Ship = {
       id: `bunk:${i}`,
       ...hand,
       hue: (i * 67 + 20) % 360,
-      station: 'mess',
+      station: homeOf(hand.name),
       isBusy: false,
     })),
   ],
-  log: [{ who: 'Ship', text: 'Shift started. Coffee is a rumour.', kind: 'idle' }],
+  log: [{ who: 'Ship', text: 'Shift started. Attendance is technically complete.', kind: 'idle' }],
   alert: 'allstop',
   jobs: 0,
   breaches: 0,
@@ -43,7 +50,7 @@ const EMPTY: Ship = {
 }
 
 const ship = atom({ plugin: 'lower-decks', key: 'ship' } as const, EMPTY, {
-  shape: 'ship-2',
+  shape: 'ship-3',
 })
 
 function mateOf(state: Ship, id: string): { crew: Mate[]; mate: Mate; isNew: boolean } {
@@ -204,7 +211,7 @@ export const register: Register = on => {
       const id = e.agentId ?? MAIN
       await update($, ship, (s): Ship => {
         const { next: moved, mate } = post(s, id, id === MAIN ? 'mess' : 'cryo', true)
-        const text = id === MAIN ? pick(ORDERS, s.jobs + s.log.length) : `Dragged out of the mess and assigned. Known issue: ${mate.flaw}.`
+        const text = id === MAIN ? pick(ORDERS, s.jobs + s.log.length) : `Assigned. Known issue: ${mate.flaw}.`
 
         return { ...moved, alert: 'underway', breachAt: undefined, log: logged(moved, mate.name, text, id === MAIN ? 'bridge' : 'hire') }
       })
@@ -284,7 +291,8 @@ export const register: Register = on => {
       const isWrecked = e.reason === 'error' || e.reason === 'aborted'
       await update($, ship, (s): Ship => {
         if (id !== MAIN) {
-          const { next: moved, mate } = post(s, id, 'mess', false)
+          const name = s.crew.find(m => m.id === id)?.name ?? ''
+          const { next: moved, mate } = post(s, id, homeOf(name), false)
 
           return { ...moved, log: logged(moved, mate.name, pick(OFF, s.log.length), 'idle') }
         }
@@ -292,14 +300,14 @@ export const register: Register = on => {
 
         return {
           ...s,
-          crew: s.crew.map(m => (m.id === MAIN || !m.isBusy ? { ...m, station: 'mess' as const, isBusy: false } : m)),
+          crew: s.crew.map(m => (m.id === MAIN || !m.isBusy ? { ...m, station: homeOf(m.name), isBusy: false } : m)),
           alert: 'allstop',
           breachAt: undefined,
           log: logged(s, 'Ship', text, 'idle'),
         }
       })
       if (id === MAIN) {
-        $.ui.toast(`${SHIP}: all stop. Your move, Captain.`)
+        $.ui.toast(`${SHIP}: all stop. Awaiting the bridge.`)
       }
     } catch {
       // As above.
@@ -414,10 +422,10 @@ function plain(state: Ship, room: number, Text: TextTag) {
 
 function banner(state: Ship): string {
   return state.alert === 'breach'
-    ? 'HULL BREACH. AGAIN.'
+    ? 'HULL BREACH. NOTED.'
     : state.alert === 'allstop'
       ? 'ALL STOP. Awaiting the bridge.'
-      : 'Underway. Allegedly.'
+      : 'Underway. For now.'
 }
 
 function tone(state: Ship): 'error' | 'warning' | 'success' {
