@@ -24,7 +24,10 @@ export type Entry = { who: string; text: string; kind: EntryKind }
 
 export type Alert = 'underway' | 'allstop' | 'breach'
 
+export type Setting = 'freighter' | 'colony'
+
 export type Ship = {
+  setting?: Setting
   crew: Mate[]
   log: Entry[]
   alert: Alert

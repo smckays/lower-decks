@@ -1,4 +1,4 @@
-import type { Station } from '../types'
+import type { Setting, Station } from '../types'
 
 export const SHIP = 'MV Sunk Cost'
 
@@ -16,7 +16,9 @@ export const ROSTER = [
   { name: 'Lump', flaw: 'technically awake' },
 ]
 
-export type Job = { station: Station; lines: string[] }
+export type Kind = 'read' | 'search' | 'edit' | 'write' | 'run' | 'test' | 'comms' | 'hire' | 'bridge' | 'manual' | 'other'
+
+export type Job = { station: Station; kind: Kind }
 
 const READ = [
   'Retrieved {x} from the hold. It is what it says it is.',
@@ -121,40 +123,40 @@ export function jobOf(tool: string, input: Record<string, unknown>): Job & { sub
 
   switch (tool) {
     case 'Read':
-      return { station: 'hold', lines: READ, subject: file || 'a crate' }
+      return { station: 'hold', kind: 'read', subject: file || 'a crate' }
     case 'Grep':
     case 'Glob':
-      return { station: 'sensors', lines: SEARCH, subject: clip(text(input.pattern), 32) || 'something' }
+      return { station: 'sensors', kind: 'search', subject: clip(text(input.pattern), 32) || 'something' }
     case 'Edit':
     case 'NotebookEdit':
-      return { station: 'workshop', lines: EDIT, subject: file || 'the hull' }
+      return { station: 'workshop', kind: 'edit', subject: file || 'the hull' }
     case 'Write':
-      return { station: 'workshop', lines: WRITE, subject: file || 'gizmo' }
+      return { station: 'workshop', kind: 'write', subject: file || 'gizmo' }
     case 'Bash': {
       const command = text(input.command)
       const subject = clip(text(input.description) || command, 48) || 'a lever'
 
       return isTest.test(command)
-        ? { station: 'reactor', lines: TEST, subject }
-        : { station: 'engine', lines: RUN, subject }
+        ? { station: 'reactor', kind: 'test', subject }
+        : { station: 'engine', kind: 'run', subject }
     }
     case 'WebFetch':
     case 'WebSearch':
-      return { station: 'comms', lines: COMMS, subject: clip(text(input.query) || text(input.url), 40) || 'things' }
+      return { station: 'comms', kind: 'comms', subject: clip(text(input.query) || text(input.url), 40) || 'things' }
     case 'Agent':
     case 'Task':
-      return { station: 'cryo', lines: HIRE, subject: clip(text(input.description), 40) || 'unspecified toil' }
+      return { station: 'cryo', kind: 'hire', subject: clip(text(input.description), 40) || 'unspecified toil' }
     case 'AskUserQuestion':
-      return { station: 'bridge', lines: BRIDGE, subject: '' }
+      return { station: 'bridge', kind: 'bridge', subject: '' }
     case 'Skill':
     case 'ToolSearch':
-      return { station: 'sensors', lines: MANUAL, subject: clip(text(input.skill) || text(input.query), 32) || 'everything' }
+      return { station: 'sensors', kind: 'manual', subject: clip(text(input.skill) || text(input.query), 32) || 'everything' }
     default: {
       const name = tool.startsWith('mcp__') ? tool.split('__').slice(1).join(' ') : tool
 
       return {
         station: tool.startsWith('mcp__') ? 'comms' : 'engine',
-        lines: OTHER,
+        kind: 'other',
         subject: clip(name.replace(/_/g, ' '), 36),
       }
     }
@@ -165,7 +167,7 @@ export function pick(lines: readonly string[], n: number, subject = ''): string 
   return (lines[n % lines.length] ?? '').replace('{x}', subject)
 }
 
-export const LOG_SYSTEM = `You write the unofficial ship's log of the ${SHIP}, a badly maintained cargo freighter, in the voice of its lower-deck crew. The Captain (never seen) sends orders down a tube; the crew does the work.
+const LOG_SYSTEM = `You write the unofficial ship's log of the ${SHIP}, a badly maintained cargo freighter, in the voice of its lower-deck crew. The Captain (never seen) sends orders down a tube; the crew does the work.
 
 The humour is dry: flat, understated, matter-of-fact, the tone of a maintenance report written by someone who has stopped expecting anything. Short declarative sentences. Understatement over exaggeration. No exclamation marks, no wacky similes, no puns, no winking at the reader. The joke is in what is left unsaid.
 
@@ -200,3 +202,104 @@ export const BANTER: Quip[] = [
   { text: 'For the log: {b} and I are conducting a review. Of what, the log need not say.' },
   { text: 'Listening to the engines. They have less to say than {b}. I prefer it.', at: 'engine' },
 ]
+
+const COLONY_SYSTEM = `You write field notes on a colony of small identical units (bytes) living in a network of tunnels and chambers, observed from above like an ant farm. The units have no names and no faces; cohorts are known only by hex designations. Orders arrive from the Surface, which no unit has seen.
+
+The tone is dry: a naturalist's notebook kept by someone who has watched this colony for too long. Flat, understated, precise. Short declarative sentences. No exclamation marks, no puns, no cute language, no winking. The humour is in the understatement.
+
+You are given a real status update from the engineer running the job. Rewrite it as ONE field note, 140 characters at most, in that voice. Keep the concrete fact (what was found, done or about to be done) recognisable. No quotation marks, no emoji, no preamble. Output only the note.`
+
+export type Voice = {
+  title: string
+  start: string
+  system: string
+  memo: string
+  assigned: string
+  toast: string
+  work: Record<Kind, string[]>
+  breach: string[]
+  orders: string[]
+  idle: string[]
+  wreck: string[]
+  off: string[]
+  banter: Quip[]
+  banners: { underway: string; allstop: string; breach: string }
+}
+
+export const VOICES: Record<Setting, Voice> = {
+  freighter: {
+    title: SHIP,
+    start: 'Shift started. Attendance is technically complete.',
+    system: LOG_SYSTEM,
+    memo: 'Memo from upstairs, verbatim: ',
+    assigned: 'Assigned. Known issue: {flaw}.',
+    toast: `${SHIP}: all stop. Awaiting the bridge.`,
+    work: { read: READ, search: SEARCH, edit: EDIT, write: WRITE, run: RUN, test: TEST, comms: COMMS, hire: HIRE, bridge: BRIDGE, manual: MANUAL, other: OTHER },
+    breach: BREACH,
+    orders: ORDERS,
+    idle: IDLE,
+    wreck: WRECK,
+    off: OFF,
+    banter: BANTER,
+    banners: { underway: 'UNDERWAY. FOR NOW.', allstop: 'ALL STOP. AWAITING THE BRIDGE.', breach: 'HULL BREACH. NOTED.' },
+  },
+  colony: {
+    title: 'Colony 7F',
+    start: 'Observation resumed. The colony had not noticed it stopped.',
+    system: COLONY_SYSTEM,
+    memo: 'From the Surface, unaltered: ',
+    assigned: 'Cohort roused and dispatched. No objection was detected.',
+    toast: 'Colony 7F: dormant. Awaiting stimulus.',
+    work: {
+      read: ['Units carried {x} out of the stores. They did not appear impressed.', 'A column examined {x}. It was returned as found.', '{x} retrieved. The stores are no emptier for it.'],
+      search: ['Scouts dispatched for {x}. Most came back.', 'The galleries were combed for {x}. Something was located.', 'Search for {x}. The colony has many places to look and used them.'],
+      edit: ['Units rearranged {x}. The arrangement is new. That is all that can be said.', 'A cluster reworked {x}. It held.', '{x} altered. No unit claimed responsibility.'],
+      write: ['The works produced {x}. It was not there before.', 'New structure: {x}. Purpose assumed.'],
+      run: ['The pump was engaged: {x}. Flow resumed.', '{x}. The colony carried on as if this were routine.', 'Units executed {x}. Output was produced, in quantity.'],
+      test: ['A cohort entered the proving chamber: {x}. Fewer theories came out.', 'Proving: {x}. The chamber does not negotiate.', '{x}, under test. The units wait in the manner of units.'],
+      comms: ['A column left the colony regarding {x}. The outside remains outside.', 'Outer gallery: {x}. Contact was made, for what it is worth.'],
+      hire: ['A dormant cohort was roused for: {x}.', 'The dormitory released a cohort. Task: {x}.'],
+      bridge: ['A query was sent to the Surface. The colony has stopped moving, which is how it waits.', 'The Surface was consulted. Reply times vary.'],
+      manual: ['Units consulted the record on {x}. The record is incomplete and confident.', 'Reference sought: {x}.'],
+      other: ['Units operated {x}. Precedent for this is thin.', '{x} was used. It still works, apparently.'],
+    },
+    breach: ['Collapse. The units have noted it by going around.', 'A failure. It joins the sediment.', 'Tunnel lost. No unit seemed surprised.', 'It gave way. It had been giving way for some time.'],
+    orders: ['Stimulus from the Surface. The colony has begun to respond.', 'New instruction arrived. Units are orienting.', 'The Surface wants something. Movement has resumed.'],
+    idle: ['Dormant. Units are circling the commons. This is their natural state.', 'Activity has ceased. Nothing was lost by it.', 'The colony waits. It is better at this than the work.', 'No stimulus. The units persist anyway.'],
+    wreck: ['Activity ended early. The units did not decide this.', 'Halted from above. Columns dispersed without comment.'],
+    off: ['Cohort returned to the dormitory. Result unverified.', 'Task ended. The cohort dissolved back into the mass.', 'Done. No unit stayed to explain.'],
+    banter: [
+      { text: 'Cohort {a} has formed a queue. Nothing is at the front of it.' },
+      { text: '{a} and {b} have met in a tunnel. Neither is reversing.' },
+      { text: '{a} is circling {b}. This has been going on for some time.' },
+      { text: 'A unit from {a} left the commons, reached the stores, and returned. It carried nothing.', at: 'hold' },
+      { text: '{b} has been displaced from its spot by {a}. The spot is unremarkable.' },
+      { text: '{a} is inspecting the proving chamber. It is empty. The inspection continues.', at: 'reactor' },
+      { text: '{a} appears to be counting {b}. The count keeps changing.' },
+      { text: 'Cohort {a} has withdrawn to the dormitory. It was not tired. It was near {b}.', at: 'cryo' },
+      { text: '{a} is following {b} at a fixed distance. {b} has sped up slightly.' },
+      { text: 'Several units of {a} are standing still. This is being treated as a position.' },
+      { text: '{a} has moved to the outer gallery to face the wall.', at: 'comms' },
+      { text: '{b} built a small pile. {a} moved it four units to the left.' },
+      { text: '{a} returned to the commons. The commons absorbed it.', at: 'mess' },
+      { text: '{a} and {b} are exchanging something. It appears to be the same thing, back and forth.' },
+      { text: 'A column from {a} is patrolling the works. Nothing there requires it.', at: 'workshop' },
+    ],
+    banners: { underway: 'ACTIVE.', allstop: 'DORMANT. AWAITING STIMULUS.', breach: 'COLLAPSE. NOTED.' },
+  },
+}
+
+// Bytes have designations, not names.
+const HEX: Record<string, string> = {
+  'Chief Hask': '0x00', Gary: '0x1F', Mott: '0x2A', Pim: '0x3C', Dregs: '0x4D',
+  Vex: '0x5E', Oona: '0x6B', Skiv: '0x77', Lump: '0x7F', Ship: 'Colony',
+}
+
+/** A crew name as the setting knows it. */
+export function alias(setting: Setting, text: string): string {
+  if (setting !== 'colony') {
+    return text
+  }
+
+  return text.replace(/Chief Hask|Gary|Mott|Pim|Dregs|Vex|Oona|Skiv|Lump|Ship/g, name => HEX[name] ?? name)
+}

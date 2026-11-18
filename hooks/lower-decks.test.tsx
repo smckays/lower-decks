@@ -15,6 +15,7 @@ const PANE = {
 } as const
 
 test('a tool call puts the chief to work, and a failure is a breach', async ($, on) => {
+  on('clock.now', () => ({ value: 0 }))
   on('tool.call', (_, e) =>
     String(e.tool) === 'Bash' ? { result: {}, text: 'boom', isError: true } : { result: {} },
   )
@@ -36,6 +37,7 @@ test('a tool call puts the chief to work, and a failure is a breach', async ($, 
 })
 
 test('a subagent is hired by name and the picture is drawn', async ($, on) => {
+  on('clock.now', () => ({ value: 0 }))
   on('tool.call', () => ({ result: {} }))
 
   await $.tool.call({ tool: 'Grep', pattern: 'TODO', agentId: 'a1' })
@@ -61,5 +63,22 @@ test('with no pane on screen the log rides above the prompt', async ($, on) => {
     props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 3, bodyColumns: 80, scroll: { offset: 0, bodyRows: 3 }, view: {} },
   })
   expect((await ui.find({ type: 'Text', text: /manifest\.txt/ })) !== undefined).toBe(true)
+  await ui.unmount()
+})
+
+test('the colony setting draws the swarm and renames the crew', async ($, on) => {
+  on('tool.call', () => ({ result: {} }))
+  on('command.register', () => ({ value: { command: 'lower-decks' } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('command.run', () => ({}))
+  on('clock.now', () => ({ value: 0 }))
+  on('store.set', () => ({ value: undefined }))
+
+  await $.command.run({ command: 'lower-decks', args: 'colony' } as never)
+  await $.tool.call({ tool: 'Read', file_path: '/a/b/manifest.txt' })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect((await ui.find({ type: 'Text', text: /0x00:/ })) !== undefined).toBe(true)
+  expect((await ui.find({ type: 'Text', text: /Hask/ })) === undefined).toBe(true)
   await ui.unmount()
 })

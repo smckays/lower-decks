@@ -1,23 +1,10 @@
 import { atom, read, update } from 'claude-code'
 import type { Elements, Register } from 'claude-code'
 
-import type { Entry, EntryKind, Mate, Ship, Station } from '../types'
+import type { Entry, EntryKind, Mate, Setting, Ship, Station } from '../types'
+import { colonyDescribe, colonyLabel, colonyScene } from './colony'
 import { describe, roomLabel, scene } from './scene'
-import {
-  BANTER,
-  BREACH,
-  CHIEF,
-  IDLE,
-  LOG_SYSTEM,
-  OFF,
-  ORDERS,
-  ROSTER,
-  SHIP,
-  WRECK,
-  clipLine,
-  jobOf,
-  pick,
-} from './voice'
+import { CHIEF, ROSTER, VOICES, alias, clipLine, jobOf, pick } from './voice'
 
 const PANE = 'lower-decks'
 const MAIN = 'main'
@@ -25,6 +12,14 @@ const MODEL = 'claude-haiku-5-5'
 
 // Where each hand loafs by default, so the mess is not standing room only.
 const HOME: Record<string, Station> = { Mott: 'hold', Dregs: 'comms', Vex: 'cryo', Skiv: 'hold', Lump: 'cryo' }
+
+function voiceOf(state: Ship) {
+  return VOICES[state.setting ?? 'freighter']
+}
+
+function labelOf(state: Ship, station: Station): string {
+  return state.setting === 'colony' ? colonyLabel(station) : roomLabel(station)
+}
 
 function homeOf(name: string): Station {
   return HOME[name] ?? 'mess'
@@ -42,7 +37,7 @@ const EMPTY: Ship = {
       isBusy: false,
     })),
   ],
-  log: [{ who: 'Ship', text: 'Shift started. Attendance is technically complete.', kind: 'idle' }],
+  log: [{ who: 'Ship', text: VOICES.freighter.start, kind: 'idle' }],
   alert: 'allstop',
   jobs: 0,
   breaches: 0,
@@ -108,9 +103,16 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'lower-decks',
-      description: `Open the ${SHIP} crew panel`,
+      description: 'Open the crew panel, or switch its setting: /lower-decks colony, /lower-decks freighter',
+      argumentHint: '[freighter|colony]',
     })
-    void $.ui.open({ id: PANE, title: SHIP })
+    // The setting is the person's choice and outlives the session.
+    const kept = await $.store.get('setting').catch(() => undefined)
+    const setting: Setting = kept === 'colony' ? 'colony' : 'freighter'
+    const current = await update($, ship, (s): Ship =>
+      s.setting === setting ? s : { ...s, setting, log: [{ who: 'Ship', text: VOICES[setting].start, kind: 'idle' }] },
+    )
+    void $.ui.open({ id: PANE, title: voiceOf(current).title })
 
     $.clock.every(1500, () => {
       const job = queue.shift()
@@ -148,11 +150,12 @@ export const register: Register = on => {
         const a = s.crew[(roll + quips) % s.crew.length]
         const others = s.crew.filter(m => m !== a)
         const b = others[(roll >> 3) % others.length]
-        const quip = BANTER[(roll + quips * 7) % BANTER.length]
+        const banter = voiceOf(s).banter
+        const quip = banter[(roll + quips * 7) % banter.length]
         if (a === undefined || b === undefined || quip === undefined) {
           return s
         }
-        const text = quip.text.replace(/\{b\}/g, b.name)
+        const text = quip.text.replace(/\{b\}/g, b.name).replace(/\{a\}/g, a.name)
 
         return {
           ...s,
@@ -164,11 +167,12 @@ export const register: Register = on => {
 
     async function translate(job: { id: string; text: string }): Promise<void> {
       let line: string | undefined
+      const voice = voiceOf(await read($, ship))
       if (misses < 3) {
         try {
           const answer = await $.model.complete({
             model: MODEL,
-            system: LOG_SYSTEM,
+            system: voice.system,
             prompt: clipLine(job.text, 700),
             maxTokens: 120,
             timeoutMs: 20000,
@@ -184,7 +188,7 @@ export const register: Register = on => {
         }
       }
       // No model to do the voice: the memo goes up verbatim.
-      const text = line ?? `Memo from upstairs, verbatim: ${clipLine(job.text, 120)}`
+      const text = line ?? `${voice.memo}${clipLine(job.text, 120)}`
       await update($, ship, (s): Ship => {
         const who = s.crew.find(m => m.id === job.id)?.name ?? CHIEF.name
 
@@ -195,13 +199,28 @@ export const register: Register = on => {
     return next(e)
   })
 
-  on('command.run', { command: 'lower-decks' }, async $ => {
-    const opened = await $.ui.open({ id: PANE, title: SHIP })
+  on('command.run', { command: 'lower-decks' }, async ($, e) => {
+    const asked = e.args.trim().toLowerCase()
+    let state = await read($, ship)
+    if (asked === 'colony' || asked === 'freighter') {
+      await $.store.set('setting', asked)
+      state = await update($, ship, (s): Ship => ({
+        ...s,
+        setting: asked,
+        breachAt: undefined,
+        alert: s.alert === 'breach' ? 'underway' : s.alert,
+        log: [{ who: 'Ship', text: VOICES[asked].start, kind: 'idle' }],
+      }))
+    }
+    const voice = voiceOf(state)
+    const opened = await $.ui.open({ id: PANE, title: voice.title })
+    const unknown = asked !== '' && asked !== 'colony' && asked !== 'freighter' ? ` No setting called "${asked}": the settings are freighter and colony.` : ''
 
     return {
-      text: opened.isPlaced
-        ? `${SHIP} crew panel opened.`
-        : `No side panel in this app (${opened.reason}), so the ${SHIP} is drawn here and the log runs above the prompt.`,
+      text:
+        (opened.isPlaced
+          ? `${voice.title} panel opened.`
+          : `No side panel in this app (${opened.reason}), so ${voice.title} is drawn here and the log runs above the prompt.`) + unknown,
       isTextDisplayOnly: true,
     }
   })
@@ -211,7 +230,8 @@ export const register: Register = on => {
       const id = e.agentId ?? MAIN
       await update($, ship, (s): Ship => {
         const { next: moved, mate } = post(s, id, id === MAIN ? 'mess' : 'cryo', true)
-        const text = id === MAIN ? pick(ORDERS, s.jobs + s.log.length) : `Assigned. Known issue: ${mate.flaw}.`
+        const voice = voiceOf(s)
+        const text = id === MAIN ? pick(voice.orders, s.jobs + s.log.length) : voice.assigned.replace('{flaw}', mate.flaw)
 
         return { ...moved, alert: 'underway', breachAt: undefined, log: logged(moved, mate.name, text, id === MAIN ? 'bridge' : 'hire') }
       })
@@ -237,7 +257,7 @@ export const register: Register = on => {
           alert: 'underway',
           breachAt: undefined,
           jobs: moved.jobs + 1,
-          log: logged(moved, mate.name, pick(job.lines, n, job.subject), 'work'),
+          log: logged(moved, mate.name, pick(voiceOf(moved).work[job.kind], n, job.subject), 'work'),
         }
       })
     } catch {
@@ -256,7 +276,7 @@ export const register: Register = on => {
             alert: 'breach',
             breachAt: job.station,
             breaches: s.breaches + 1,
-            log: logged(s, mate?.name ?? CHIEF.name, `${roomLabel(job.station)}: ${pick(BREACH, s.breaches)}`, 'breach'),
+            log: logged(s, mate?.name ?? CHIEF.name, `${labelOf(s, job.station)}: ${pick(voiceOf(s).breach, s.breaches)}`, 'breach'),
           }
         })
       } catch {
@@ -294,9 +314,9 @@ export const register: Register = on => {
           const name = s.crew.find(m => m.id === id)?.name ?? ''
           const { next: moved, mate } = post(s, id, homeOf(name), false)
 
-          return { ...moved, log: logged(moved, mate.name, pick(OFF, s.log.length), 'idle') }
+          return { ...moved, log: logged(moved, mate.name, pick(voiceOf(s).off, s.log.length), 'idle') }
         }
-        const text = pick(isWrecked ? WRECK : IDLE, s.jobs + s.breaches)
+        const text = pick(isWrecked ? voiceOf(s).wreck : voiceOf(s).idle, s.jobs + s.breaches)
 
         return {
           ...s,
@@ -307,7 +327,7 @@ export const register: Register = on => {
         }
       })
       if (id === MAIN) {
-        $.ui.toast(`${SHIP}: all stop. Awaiting the bridge.`)
+        $.ui.toast(voiceOf(await read($, ship)).toast)
       }
     } catch {
       // As above.
@@ -330,8 +350,8 @@ export const register: Register = on => {
 
     return (
       <Box flexDirection="column" gap={1}>
-        <Svg source={scene(state, SHIP)} alt={describe(state)} />
-        {!isGlance && (
+        <Svg {...picture(state, (await $.clock.now()) / 1000)} />
+        {!isGlance && state.setting !== 'colony' && (
           <Text dimColor size="caption">
             {state.crew.map(m => `${m.name} (${m.flaw})`).join(' · ')}
           </Text>
@@ -360,7 +380,7 @@ export const register: Register = on => {
     return (
       <Box flexDirection="column" gap={1}>
         {note}
-        <Svg source={scene(state, SHIP)} alt={describe(state)} />
+        <Svg {...picture(state, (await $.clock.now()) / 1000)} />
         <Box flexDirection="column">{logRows(state, 6, Text)}</Box>
       </Box>
     )
@@ -379,10 +399,10 @@ export const register: Register = on => {
     return (
       <Box>
         <Text color={tone(state)} bold>
-          {SHIP}{' '}
+          {voiceOf(state).title}{' '}
         </Text>
         <Text dimColor wrap="truncate-end">
-          {last === undefined ? banner(state) : `${last.who}: ${last.text}`}
+          {last === undefined ? banner(state) : said(state, `${last.who}: ${last.text}`)}
         </Text>
       </Box>
     )
@@ -397,7 +417,7 @@ function logRows(state: Ship, room: number, Text: TextTag) {
     .reverse()
     .map((entry, i) => (
       <Text dimColor={i > 0 && entry.kind !== 'breach'} color={entry.kind === 'breach' ? 'error' : undefined}>
-        <Text bold>{entry.who}:</Text> {entry.text}
+        <Text bold>{said(state, entry.who)}:</Text> {said(state, entry.text)}
       </Text>
     ))
 }
@@ -409,7 +429,8 @@ function plain(state: Ship, room: number, Text: TextTag) {
     </Text>,
     ...state.crew.map(m => (
       <Text dimColor={!m.isBusy}>
-        {m.isBusy ? '>' : 'z'} {m.name} ({m.flaw}): {roomLabel(m.station).toLowerCase()}
+        {m.isBusy ? '>' : 'z'} {said(state, m.name)}
+        {state.setting === 'colony' ? '' : ` (${m.flaw})`}: {labelOf(state, m.station).toLowerCase()}
       </Text>
     )),
     <Text dimColor>
@@ -421,11 +442,17 @@ function plain(state: Ship, room: number, Text: TextTag) {
 }
 
 function banner(state: Ship): string {
-  return state.alert === 'breach'
-    ? 'HULL BREACH. NOTED.'
-    : state.alert === 'allstop'
-      ? 'ALL STOP. Awaiting the bridge.'
-      : 'Underway. For now.'
+  return voiceOf(state).banners[state.alert]
+}
+
+function said(state: Ship, text: string): string {
+  return alias(state.setting ?? 'freighter', text)
+}
+
+function picture(state: Ship, now: number): { source: string; alt: string } {
+  return state.setting === 'colony'
+    ? { source: colonyScene(state, now), alt: colonyDescribe(state) }
+    : { source: scene(state, VOICES.freighter.title), alt: describe(state) }
 }
 
 function tone(state: Ship): 'error' | 'warning' | 'success' {
