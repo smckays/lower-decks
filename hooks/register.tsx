@@ -23,6 +23,13 @@ const PANE = 'lower-decks'
 const MAIN = 'main'
 const MODEL = 'claude-haiku-5-5'
 
+// Where each hand loafs by default, so the mess is not standing room only.
+const HOME: Record<string, Station> = { Mott: 'hold', Dregs: 'comms', Vex: 'cryo', Skiv: 'hold', Lump: 'cryo' }
+
+function homeOf(name: string): Station {
+  return HOME[name] ?? 'mess'
+}
+
 const EMPTY: Ship = {
   crew: [
     { id: MAIN, ...CHIEF, hue: 200, station: 'mess', isBusy: false },
@@ -31,7 +38,7 @@ const EMPTY: Ship = {
       id: `bunk:${i}`,
       ...hand,
       hue: (i * 67 + 20) % 360,
-      station: 'mess',
+      station: homeOf(hand.name),
       isBusy: false,
     })),
   ],
@@ -43,7 +50,7 @@ const EMPTY: Ship = {
 }
 
 const ship = atom({ plugin: 'lower-decks', key: 'ship' } as const, EMPTY, {
-  shape: 'ship-2',
+  shape: 'ship-3',
 })
 
 function mateOf(state: Ship, id: string): { crew: Mate[]; mate: Mate; isNew: boolean } {
@@ -284,7 +291,8 @@ export const register: Register = on => {
       const isWrecked = e.reason === 'error' || e.reason === 'aborted'
       await update($, ship, (s): Ship => {
         if (id !== MAIN) {
-          const { next: moved, mate } = post(s, id, 'mess', false)
+          const name = s.crew.find(m => m.id === id)?.name ?? ''
+          const { next: moved, mate } = post(s, id, homeOf(name), false)
 
           return { ...moved, log: logged(moved, mate.name, pick(OFF, s.log.length), 'idle') }
         }
@@ -292,7 +300,7 @@ export const register: Register = on => {
 
         return {
           ...s,
-          crew: s.crew.map(m => (m.id === MAIN || !m.isBusy ? { ...m, station: 'mess' as const, isBusy: false } : m)),
+          crew: s.crew.map(m => (m.id === MAIN || !m.isBusy ? { ...m, station: homeOf(m.name), isBusy: false } : m)),
           alert: 'allstop',
           breachAt: undefined,
           log: logged(s, 'Ship', text, 'idle'),
