@@ -2,6 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { Elements, Register } from 'claude-code'
 
 import type { Entry, EntryKind, Mate, Setting, Ship, Station } from '../types'
+import { circuitDescribe, circuitLabel, circuitScene } from './circuit'
 import { colonyDescribe, colonyLabel, colonyScene } from './colony'
 import { describe, roomLabel, scene } from './scene'
 import { CHIEF, ROSTER, VOICES, alias, clipLine, jobOf, pick } from './voice'
@@ -18,7 +19,7 @@ function voiceOf(state: Ship) {
 }
 
 function labelOf(state: Ship, station: Station): string {
-  return state.setting === 'colony' ? colonyLabel(station) : roomLabel(station)
+  return state.setting === 'colony' ? colonyLabel(station) : state.setting === 'circuit' ? circuitLabel(station) : roomLabel(station)
 }
 
 function homeOf(name: string): Station {
@@ -103,12 +104,12 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'lower-decks',
-      description: 'Open the crew panel, or switch its setting: /lower-decks colony, /lower-decks freighter',
-      argumentHint: '[freighter|colony]',
+      description: 'Open the panel, or switch its setting: /lower-decks circuit, /lower-decks colony, /lower-decks freighter',
+      argumentHint: '[freighter|colony|circuit]',
     })
     // The setting is the person's choice and outlives the session.
     const kept = await $.store.get('setting').catch(() => undefined)
-    const setting: Setting = kept === 'colony' ? 'colony' : 'freighter'
+    const setting: Setting = kept === 'colony' || kept === 'circuit' ? kept : 'freighter'
     const current = await update($, ship, (s): Ship =>
       s.setting === setting ? s : { ...s, setting, log: [{ who: 'Ship', text: VOICES[setting].start, kind: 'idle' }] },
     )
@@ -202,7 +203,8 @@ export const register: Register = on => {
   on('command.run', { command: 'lower-decks' }, async ($, e) => {
     const asked = e.args.trim().toLowerCase()
     let state = await read($, ship)
-    if (asked === 'colony' || asked === 'freighter') {
+    const isSetting = asked === 'colony' || asked === 'freighter' || asked === 'circuit'
+    if (asked === 'colony' || asked === 'freighter' || asked === 'circuit') {
       await $.store.set('setting', asked)
       state = await update($, ship, (s): Ship => ({
         ...s,
@@ -214,7 +216,7 @@ export const register: Register = on => {
     }
     const voice = voiceOf(state)
     const opened = await $.ui.open({ id: PANE, title: voice.title })
-    const unknown = asked !== '' && asked !== 'colony' && asked !== 'freighter' ? ` No setting called "${asked}": the settings are freighter and colony.` : ''
+    const unknown = asked !== '' && !isSetting ? ` No setting called "${asked}": the settings are freighter, colony and circuit.` : ''
 
     return {
       text:
@@ -351,7 +353,7 @@ export const register: Register = on => {
     return (
       <Box flexDirection="column" gap={1}>
         <Svg {...picture(state, (await $.clock.now()) / 1000)} />
-        {!isGlance && state.setting !== 'colony' && (
+        {!isGlance && (state.setting ?? 'freighter') === 'freighter' && (
           <Text dimColor size="caption">
             {state.crew.map(m => `${m.name} (${m.flaw})`).join(' · ')}
           </Text>
@@ -430,7 +432,7 @@ function plain(state: Ship, room: number, Text: TextTag) {
     ...state.crew.map(m => (
       <Text dimColor={!m.isBusy}>
         {m.isBusy ? '>' : 'z'} {said(state, m.name)}
-        {state.setting === 'colony' ? '' : ` (${m.flaw})`}: {labelOf(state, m.station).toLowerCase()}
+        {(state.setting ?? 'freighter') === 'freighter' ? ` (${m.flaw})` : ''}: {labelOf(state, m.station).toLowerCase()}
       </Text>
     )),
     <Text dimColor>
@@ -450,6 +452,10 @@ function said(state: Ship, text: string): string {
 }
 
 function picture(state: Ship, now: number): { source: string; alt: string } {
+  if (state.setting === 'circuit') {
+    return { source: circuitScene(state, now), alt: circuitDescribe(state) }
+  }
+
   return state.setting === 'colony'
     ? { source: colonyScene(state, now), alt: colonyDescribe(state) }
     : { source: scene(state, VOICES.freighter.title), alt: describe(state) }

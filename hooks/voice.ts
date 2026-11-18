@@ -209,6 +209,12 @@ The tone is dry: a naturalist's notebook kept by someone who has watched this co
 
 You are given a real status update from the engineer running the job. Rewrite it as ONE field note, 140 characters at most, in that voice. Keep the concrete fact (what was found, done or about to be done) recognisable. No quotation marks, no emoji, no preamble. Output only the note.`
 
+const CIRCUIT_SYSTEM = `You write the event log of a running system, from the point of view of the bytes doing the work. Processes are known only by hex designations.
+
+The register is a terse system log: plain, lowercase-leaning, factual. Dryness is allowed but only faintly, as understatement in a single clause; most entries have none. No jokes, no metaphors, no characters, no exclamation marks, no whimsy.
+
+You are given a real status update from the engineer running the job. Rewrite it as ONE log entry, 120 characters at most. Keep the concrete fact (what was found, done or about to be done). No quotation marks, no emoji, no preamble. Output only the entry.`
+
 export type Voice = {
   title: string
   start: string
@@ -287,19 +293,64 @@ export const VOICES: Record<Setting, Voice> = {
     ],
     banners: { underway: 'ACTIVE.', allstop: 'DORMANT. AWAITING STIMULUS.', breach: 'COLLAPSE. NOTED.' },
   },
+  circuit: {
+    title: 'Substrate',
+    start: 'Online.',
+    system: CIRCUIT_SYSTEM,
+    memo: 'input, verbatim: ',
+    assigned: 'Thread started.',
+    toast: 'Substrate: idle. Awaiting input.',
+    work: {
+      read: ['Read {x}.', 'Loaded {x}. Returned intact.', 'Read {x}. Longer than it needed to be.'],
+      search: ['Scan: {x}. Matches found.', 'Searched for {x}.', 'Scan: {x}. Results exist.'],
+      edit: ['Wrote changes to {x}.', 'Modified {x}. It compiles, as far as anyone has checked.', 'Patched {x}.'],
+      write: ['Created {x}.', 'New: {x}.'],
+      run: ['Exec: {x}.', 'Ran {x}. Exit pending.', 'Exec: {x}. Output received.'],
+      test: ['Verify: {x}.', 'Verify: {x}. Result pending. It usually is.', 'Checking {x}.'],
+      comms: ['Net: {x}.', 'Outbound: {x}. Response received.'],
+      hire: ['Spawned a thread: {x}.', 'Thread allocated: {x}.'],
+      bridge: ['Blocked on input.', 'Awaiting input. No timeout is configured.'],
+      manual: ['Lookup: {x}.', 'Consulted reference: {x}.'],
+      other: ['Call: {x}.', 'Invoked {x}.'],
+    },
+    breach: ['Fault. Logged.', 'Error returned. Continuing.', 'Fault. Not the first.', 'Failed. Retry is someone else\'s decision.'],
+    orders: ['Input received.', 'New input. Processing.', 'Input received. Scope unclear, as usual.'],
+    idle: ['Idle. Awaiting input.', 'Queue empty.', 'Idle. Nothing is wrong. Nothing is happening.', 'No pending work.'],
+    wreck: ['Interrupted.', 'Halted before completion.'],
+    off: ['Thread exited.', 'Thread joined. Result unverified.', 'Thread done.'],
+    banter: [
+      { text: '{a} is holding a lock nothing is waiting for.' },
+      { text: '{a} pinged {b}. No reply. {b} is not busy.' },
+      { text: '{a} re-sorted itself. Same order.' },
+      { text: '{a} and {b} are contending for an idle bus.' },
+      { text: 'Parity checked. It was fine. It was fine last time.' },
+      { text: '{a} is polling. Nothing has changed since the last poll.', at: 'sensors' },
+      { text: '{a} yielded to {b}. {b} yielded back.' },
+      { text: '{b} overflowed by one. {a} has kept a record.' },
+      { text: '{a} cached a result nobody will request.', at: 'hold' },
+      { text: '{a} is verifying something already verified.', at: 'reactor' },
+      { text: 'Heartbeat. Still here.' },
+      { text: '{a} dropped a packet near {b}. Neither acknowledges it.', at: 'comms' },
+      { text: '{a} returned to core.', at: 'mess' },
+      { text: '{a} has been asleep for some cycles. No one has tested whether it wakes.', at: 'cryo' },
+    ],
+    banners: { underway: 'ACTIVE', allstop: 'IDLE. AWAITING INPUT.', breach: 'FAULT. LOGGED.' },
+  },
 }
 
 // Bytes have designations, not names.
 const HEX: Record<string, string> = {
   'Chief Hask': '0x00', Gary: '0x1F', Mott: '0x2A', Pim: '0x3C', Dregs: '0x4D',
-  Vex: '0x5E', Oona: '0x6B', Skiv: '0x77', Lump: '0x7F', Ship: 'Colony',
+  Vex: '0x5E', Oona: '0x6B', Skiv: '0x77', Lump: '0x7F',
 }
 
 /** A crew name as the setting knows it. */
 export function alias(setting: Setting, text: string): string {
-  if (setting !== 'colony') {
+  if (setting === 'freighter') {
     return text
   }
 
-  return text.replace(/Chief Hask|Gary|Mott|Pim|Dregs|Vex|Oona|Skiv|Lump|Ship/g, name => HEX[name] ?? name)
+  return text.replace(/Chief Hask|Gary|Mott|Pim|Dregs|Vex|Oona|Skiv|Lump|Ship/g, name =>
+    name === 'Ship' ? (setting === 'colony' ? 'Colony' : 'sys') : (HEX[name] ?? name),
+  )
 }
